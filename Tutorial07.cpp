@@ -20,6 +20,10 @@
 #include "DDSTextureLoader.h"
 #include "resource.h"
 
+#include "nvapi.h"
+#include "nvapi_lite_stereo.h"
+
+
 using namespace DirectX;
 
 //--------------------------------------------------------------------------------------
@@ -79,12 +83,16 @@ XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 XMFLOAT4                            g_vMeshColor( 0.7f, 0.7f, 0.7f, 1.0f );
 
+StereoHandle						g_pStereoHandle;
+
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
 //--------------------------------------------------------------------------------------
 HRESULT InitWindow( HINSTANCE hInstance, int nCmdShow );
+HRESULT InitStereo();
 HRESULT InitDevice();
+HRESULT ActivateStereo();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc( HWND, UINT, WPARAM, LPARAM );
 void Render();
@@ -102,11 +110,20 @@ int WINAPI wWinMain( _In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
     if( FAILED( InitWindow( hInstance, nCmdShow ) ) )
         return 0;
 
+	if( FAILED( InitStereo() ) )
+		return 0;
+
     if( FAILED( InitDevice() ) )
     {
         CleanupDevice();
         return 0;
     }
+
+	if( FAILED(ActivateStereo() ) )
+	{
+		CleanupDevice();
+		return 0;
+	}
 
     // Main message loop
     MSG msg = {0};
@@ -165,6 +182,42 @@ HRESULT InitWindow( HINSTANCE hInstance, int nCmdShow )
     ShowWindow( g_hWnd, nCmdShow );
 
     return S_OK;
+}
+
+
+//--------------------------------------------------------------------------------------
+// Setup nvapi, and enable stereo by direct mode for the app.
+// This must be called before the Device is created for Direct Mode to work.
+//--------------------------------------------------------------------------------------
+HRESULT InitStereo()
+{
+	NvAPI_Status status;
+
+	status = NvAPI_Initialize();
+	if (FAILED(status))
+		return status;
+
+	status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
+	if (FAILED(status))
+		return status;
+}
+
+
+//--------------------------------------------------------------------------------------
+// Activate stereo for the given device.
+// This must be called after the device is created.
+//--------------------------------------------------------------------------------------
+HRESULT ActivateStereo()
+{
+	NvAPI_Status status;
+
+	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_pStereoHandle);
+	if (FAILED(status))
+		return status;
+
+	status = NvAPI_Stereo_Activate(g_pStereoHandle);
+	if (FAILED(status))
+		return status;
 }
 
 
