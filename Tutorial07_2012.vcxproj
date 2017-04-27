@@ -402,6 +402,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DDSTextureLoader.h" />
+    <ClInclude Include="nvapi.h" />
+    <ClInclude Include="nvapi_lite_common.h" />
+    <ClInclude Include="nvapi_lite_salend.h" />
+    <ClInclude Include="nvapi_lite_salstart.h" />
+    <ClInclude Include="nvapi_lite_stereo.h" />
     <CLInclude Include="resource.h" />
     <ResourceCompile Include="Tutorial07.rc" />
   </ItemGroup>
@@ -409,6 +414,7 @@
     <Image Include="seafloor.dds" />
   </ItemGroup>
   <ItemGroup>
+    <Library Include="nvapi64.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
