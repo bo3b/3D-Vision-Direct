@@ -29,6 +29,9 @@
     <ClInclude Include="nvapi_lite_salend.h" />
     <ClInclude Include="nvapi_lite_salstart.h" />
     <ClInclude Include="nvapi_lite_stereo.h" />
+    <ClInclude Include="nvapi_lite_d3dext.h" />
+    <ClInclude Include="nvapi_lite_sli.h" />
+    <ClInclude Include="nvapi_lite_surround.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">
