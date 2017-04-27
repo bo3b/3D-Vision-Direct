@@ -83,7 +83,7 @@ XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 XMFLOAT4                            g_vMeshColor( 0.7f, 0.7f, 0.7f, 1.0f );
 
-StereoHandle						g_pStereoHandle;
+StereoHandle						g_StereoHandle;
 
 
 //--------------------------------------------------------------------------------------
@@ -95,7 +95,7 @@ HRESULT InitDevice();
 HRESULT ActivateStereo();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc( HWND, UINT, WPARAM, LPARAM );
-void Render();
+void RenderFrame();
 
 
 //--------------------------------------------------------------------------------------
@@ -135,9 +135,9 @@ int WINAPI wWinMain( _In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
             DispatchMessage( &msg );
         }
         else
-        {
-            Render();
-        }
+		{
+			RenderFrame();
+		}
     }
 
     CleanupDevice();
@@ -200,6 +200,8 @@ HRESULT InitStereo()
 	status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
 	if (FAILED(status))
 		return status;
+
+	return status;
 }
 
 
@@ -211,13 +213,15 @@ HRESULT ActivateStereo()
 {
 	NvAPI_Status status;
 
-	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_pStereoHandle);
+	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
 	if (FAILED(status))
 		return status;
 
-	status = NvAPI_Stereo_Activate(g_pStereoHandle);
+	status = NvAPI_Stereo_Activate(g_StereoHandle);
 	if (FAILED(status))
 		return status;
+
+	return status;
 }
 
 
@@ -706,9 +710,29 @@ LRESULT CALLBACK WndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam 
 
 
 //--------------------------------------------------------------------------------------
-// Render a frame
+// Render current image, eye independent.
 //--------------------------------------------------------------------------------------
 void Render()
+{
+	//
+	// Render the cube
+	//
+	g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+	g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBNeverChanges);
+	g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pCBChangeOnResize);
+	g_pImmediateContext->VSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
+	g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+	g_pImmediateContext->PSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
+	g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
+	g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
+	g_pImmediateContext->DrawIndexed(36, 0, 0);
+}
+
+
+//--------------------------------------------------------------------------------------
+// Render a frame, both eyes.
+//--------------------------------------------------------------------------------------
+void RenderFrame()
 {
     // Update our time
     static float t = 0.0f;
@@ -751,18 +775,8 @@ void Render()
     cb.vMeshColor = g_vMeshColor;
     g_pImmediateContext->UpdateSubresource( g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0 );
 
-    //
-    // Render the cube
-    //
-    g_pImmediateContext->VSSetShader( g_pVertexShader, nullptr, 0 );
-    g_pImmediateContext->VSSetConstantBuffers( 0, 1, &g_pCBNeverChanges );
-    g_pImmediateContext->VSSetConstantBuffers( 1, 1, &g_pCBChangeOnResize );
-    g_pImmediateContext->VSSetConstantBuffers( 2, 1, &g_pCBChangesEveryFrame );
-    g_pImmediateContext->PSSetShader( g_pPixelShader, nullptr, 0 );
-    g_pImmediateContext->PSSetConstantBuffers( 2, 1, &g_pCBChangesEveryFrame );
-    g_pImmediateContext->PSSetShaderResources( 0, 1, &g_pTextureRV );
-    g_pImmediateContext->PSSetSamplers( 0, 1, &g_pSamplerLinear );
-    g_pImmediateContext->DrawIndexed( 36, 0, 0 );
+	NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);	Render();
+	NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);	Render();
 
     //
     // Present our back buffer to our front buffer
