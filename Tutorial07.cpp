@@ -201,6 +201,27 @@ HRESULT InitStereo()
 	if (FAILED(status))
 		return status;
 
+	// The entire point is to show stereo.  
+	// If it's not enabled in the control panel, enable it.
+	NvU8 stereoEnabled;
+	status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
+	if (FAILED(status))
+		return status;
+	else if (!stereoEnabled)
+	{
+		status = NvAPI_Stereo_Enable();
+		if (FAILED(status))
+			return status;
+	}
+
+	// Verify stereo is now enabled
+	if (!stereoEnabled)
+	{
+		status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
+		if (FAILED(status) || !stereoEnabled)
+			return status;
+	}
+
 	return status;
 }
 
@@ -218,6 +239,11 @@ HRESULT ActivateStereo()
 		return status;
 
 	status = NvAPI_Stereo_Activate(g_StereoHandle);
+	if (FAILED(status))
+		return status;
+
+	NvU8 isStereoOn;
+	status = NvAPI_Stereo_IsActivated(g_StereoHandle, &isStereoOn);
 	if (FAILED(status))
 		return status;
 
