@@ -737,12 +737,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 
 //--------------------------------------------------------------------------------------
-// Render current image, eye independent.
+// Render current image, eye independent.  
 //--------------------------------------------------------------------------------------
 void Render()
 {
 	//
+	// Clear the back buffer
+	//
+	// Even though this uses the g_pRenderTargetView, it only affects half the backbuffer,
+	// because we have set a specific eye.
+	//
+	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
+
+	//
 	// Render the cube
+	//
+	// Projection matrix in CBChangeOnResize determines eye.
 	//
 	g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
 	g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBNeverChanges);
@@ -785,11 +795,6 @@ void RenderFrame()
 	g_vMeshColor.z = (sinf(t * 5.0f) + 1.0f) * 0.5f;
 
 	//
-	// Clear the back buffer
-	//
-	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
-
-	//
 	// Clear the depth buffer to 1.0 (max depth)
 	//
 	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
@@ -802,10 +807,23 @@ void RenderFrame()
 	cb.vMeshColor = g_vMeshColor;
 	g_pImmediateContext->UpdateSubresource(g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0);
 
-	NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-	Render();
-	NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-	Render();
+
+	//
+	// Drawing same object twice, once for each eye.
+	// Eye specific setup include ViewPort and Projection matrix.
+	//
+	NvAPI_Status status;
+	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+	if (SUCCEEDED(status))
+	{
+		Render();
+	}
+
+	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
+	if (SUCCEEDED(status))
+	{
+		Render();
+	}
 
 	//
 	// Present our back buffer to our front buffer
