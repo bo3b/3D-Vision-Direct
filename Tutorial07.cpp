@@ -366,7 +366,7 @@ HRESULT InitDevice()
 
 		DXGI_SWAP_CHAIN_DESC1 sd;
 		ZeroMemory(&sd, sizeof(sd));
-		sd.Width = g_ScreenWidth;
+		sd.Width = g_ScreenWidth * 2;		// Swapchain needs to be 2x sized for direct stereo.
 		sd.Height = g_ScreenHeight;
 		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		sd.SampleDesc.Count = 1;
@@ -388,7 +388,7 @@ HRESULT InitDevice()
 		DXGI_SWAP_CHAIN_DESC sd;
 		ZeroMemory(&sd, sizeof(sd));
 		sd.BufferCount = 1;
-		sd.BufferDesc.Width = g_ScreenWidth;
+		sd.BufferDesc.Width = g_ScreenWidth * 2;	// Swapchain needs to be 2x sized for direct stereo.
 		sd.BufferDesc.Height = g_ScreenHeight;
 		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		sd.BufferDesc.RefreshRate.Numerator = 60;
@@ -420,6 +420,7 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
+	// RenderTargetView will be 2x width because it is built off of the swapchain
 	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
 	pBackBuffer->Release();
 	if (FAILED(hr))
@@ -428,7 +429,7 @@ HRESULT InitDevice()
 	// Create depth stencil texture
 	D3D11_TEXTURE2D_DESC descDepth;
 	ZeroMemory(&descDepth, sizeof(descDepth));
-	descDepth.Width = g_ScreenWidth;
+	descDepth.Width = g_ScreenWidth * 2;		// Direct stereo needs 2x size
 	descDepth.Height = g_ScreenHeight;
 	descDepth.MipLevels = 1;
 	descDepth.ArraySize = 1;
@@ -455,9 +456,10 @@ HRESULT InitDevice()
 
 	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
 
-	// Setup the viewport
+	// This viewport is 2x the screen width.  The documentation directly contradicts
+	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = g_ScreenWidth;
+	vp.Width = g_ScreenWidth * 2;		// Direct stereo needs the viewport 2x as well
 	vp.Height = g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
@@ -659,6 +661,8 @@ HRESULT InitDevice()
 	g_pImmediateContext->UpdateSubresource(g_pCBNeverChanges, 0, nullptr, &cbNeverChanges, 0, 0);
 
 	// Initialize the projection matrix
+	// For the projection matrix, the shaders know nothing about being in stereo, 
+	// so this needs to be only ScreenWidth, one per eye.
 	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, g_ScreenWidth / g_ScreenHeight, 0.01f, 100.0f);
 
 	CBChangeOnResize cbChangesOnResize;
