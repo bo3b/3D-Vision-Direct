@@ -84,6 +84,8 @@ XMMATRIX                            g_Projection;
 XMFLOAT4                            g_vMeshColor(0.7f, 0.7f, 0.7f, 1.0f);
 
 StereoHandle						g_StereoHandle;
+float								g_ScreenWidth = 1280;
+float								g_ScreenHeight = 720;
 
 
 //--------------------------------------------------------------------------------------
@@ -170,7 +172,7 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
 	// Create window
 	g_hInst = hInstance;
-	RECT rc = { 0, 0, 800, 600 };
+	RECT rc = { 0, 0, g_ScreenWidth, g_ScreenHeight };
 	AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 	g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
@@ -289,11 +291,6 @@ HRESULT InitDevice()
 {
 	HRESULT hr = S_OK;
 
-	RECT rc;
-	GetClientRect(g_hWnd, &rc);
-	UINT width = rc.right - rc.left;
-	UINT height = rc.bottom - rc.top;
-
 	UINT createDeviceFlags = 0;
 #ifdef _DEBUG
 	createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -369,8 +366,8 @@ HRESULT InitDevice()
 
 		DXGI_SWAP_CHAIN_DESC1 sd;
 		ZeroMemory(&sd, sizeof(sd));
-		sd.Width = width;
-		sd.Height = height;
+		sd.Width = g_ScreenWidth;
+		sd.Height = g_ScreenHeight;
 		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		sd.SampleDesc.Count = 1;
 		sd.SampleDesc.Quality = 0;
@@ -391,8 +388,8 @@ HRESULT InitDevice()
 		DXGI_SWAP_CHAIN_DESC sd;
 		ZeroMemory(&sd, sizeof(sd));
 		sd.BufferCount = 1;
-		sd.BufferDesc.Width = width;
-		sd.BufferDesc.Height = height;
+		sd.BufferDesc.Width = g_ScreenWidth;
+		sd.BufferDesc.Height = g_ScreenHeight;
 		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		sd.BufferDesc.RefreshRate.Numerator = 60;
 		sd.BufferDesc.RefreshRate.Denominator = 1;
@@ -406,7 +403,11 @@ HRESULT InitDevice()
 	}
 
 	// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
-	dxgiFactory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
+	//dxgiFactory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
+
+	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
+	if (FAILED(hr))
+		return hr;
 
 	dxgiFactory->Release();
 
@@ -427,8 +428,8 @@ HRESULT InitDevice()
 	// Create depth stencil texture
 	D3D11_TEXTURE2D_DESC descDepth;
 	ZeroMemory(&descDepth, sizeof(descDepth));
-	descDepth.Width = width;
-	descDepth.Height = height;
+	descDepth.Width = g_ScreenWidth;
+	descDepth.Height = g_ScreenHeight;
 	descDepth.MipLevels = 1;
 	descDepth.ArraySize = 1;
 	descDepth.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -456,8 +457,8 @@ HRESULT InitDevice()
 
 	// Setup the viewport
 	D3D11_VIEWPORT vp;
-	vp.Width = (FLOAT)width;
-	vp.Height = (FLOAT)height;
+	vp.Width = g_ScreenWidth;
+	vp.Height = g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
 	vp.TopLeftX = 0;
@@ -658,7 +659,7 @@ HRESULT InitDevice()
 	g_pImmediateContext->UpdateSubresource(g_pCBNeverChanges, 0, nullptr, &cbNeverChanges, 0, 0);
 
 	// Initialize the projection matrix
-	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, width / (FLOAT)height, 0.01f, 100.0f);
+	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, g_ScreenWidth / g_ScreenHeight, 0.01f, 100.0f);
 
 	CBChangeOnResize cbChangesOnResize;
 	cbChangesOnResize.mProjection = XMMatrixTranspose(g_Projection);
@@ -673,6 +674,8 @@ HRESULT InitDevice()
 //--------------------------------------------------------------------------------------
 void CleanupDevice()
 {
+	if (g_pSwapChain) g_pSwapChain->SetFullscreenState(FALSE, nullptr);
+
 	if (g_pImmediateContext) g_pImmediateContext->ClearState();
 
 	if (g_pSamplerLinear) g_pSamplerLinear->Release();
