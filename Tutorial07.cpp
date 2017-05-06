@@ -750,6 +750,13 @@ void Render()
 	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
 
 	//
+	// Clear the depth buffer to 1.0 (max depth)
+	// 
+	// Also done on a per-eye basis.
+	//
+	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+	//
 	// Render the cube
 	//
 	// Projection matrix in CBChangeOnResize determines eye.
@@ -793,11 +800,6 @@ void RenderFrame()
 	g_vMeshColor.x = (sinf(t * 1.0f) + 1.0f) * 0.5f;
 	g_vMeshColor.y = (cosf(t * 3.0f) + 1.0f) * 0.5f;
 	g_vMeshColor.z = (sinf(t * 5.0f) + 1.0f) * 0.5f;
-
-	//
-	// Clear the depth buffer to 1.0 (max depth)
-	//
-	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
 	//
 	// Update variables that change once per frame
