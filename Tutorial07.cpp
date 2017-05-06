@@ -197,30 +197,19 @@ HRESULT InitStereo()
 	if (FAILED(status))
 		return status;
 
+	// The entire point is to show stereo.  
+	// If it's not enabled in the control panel, let the user know.
+	NvU8 stereoEnabled;
+	status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
+	if (FAILED(status) || !stereoEnabled)
+	{
+		MessageBox(g_hWnd, L"3D Vision is not enabled. Enable it in the NVidia Control Panel.", L"Error", MB_OK);
+		return status;
+	}
+
 	status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
 	if (FAILED(status))
 		return status;
-
-	// The entire point is to show stereo.  
-	// If it's not enabled in the control panel, enable it.
-	NvU8 stereoEnabled;
-	status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
-	if (FAILED(status))
-		return status;
-	else if (!stereoEnabled)
-	{
-		status = NvAPI_Stereo_Enable();
-		if (FAILED(status))
-			return status;
-	}
-
-	// Verify stereo is now enabled
-	if (!stereoEnabled)
-	{
-		status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
-		if (FAILED(status) || !stereoEnabled)
-			return status;
-	}
 
 	return status;
 }
@@ -244,8 +233,11 @@ HRESULT ActivateStereo()
 
 	NvU8 isStereoOn;
 	status = NvAPI_Stereo_IsActivated(g_StereoHandle, &isStereoOn);
-	if (FAILED(status))
+	if (FAILED(status) || !isStereoOn)
+	{
+		MessageBox(g_hWnd, L"3D Vision could not be activated.", L"Error", MB_OK);
 		return status;
+	}
 
 	return status;
 }
@@ -702,6 +694,8 @@ void CleanupDevice()
 	if (g_pImmediateContext) g_pImmediateContext->Release();
 	if (g_pd3dDevice1) g_pd3dDevice1->Release();
 	if (g_pd3dDevice) g_pd3dDevice->Release();
+
+	if (g_StereoHandle) NvAPI_Stereo_DestroyHandle(g_StereoHandle);
 }
 
 
