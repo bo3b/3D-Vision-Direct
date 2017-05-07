@@ -809,21 +809,45 @@ void RenderFrame()
 	cb.vMeshColor = g_vMeshColor;
 	g_pImmediateContext->UpdateSubresource(g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0);
 
+	NvAPI_Status status;
+	CBChangeOnResize cbChangesOnResize;
+	float pConvergence;
+	float pSeparationPercentage;
+	float pEyeSeparation;
+
+	status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
+	status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
+	status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
+
+	float separation = pEyeSeparation * pSeparationPercentage / 100;
+	float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
+
 
 	//
 	// Drawing same object twice, once for each eye.
 	// Eye specific setup include ViewPort and Projection matrix.
 	//
-	NvAPI_Status status;
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
 	if (SUCCEEDED(status))
 	{
+		cbChangesOnResize.mProjection = g_Projection;
+		cbChangesOnResize.mProjection._31 -= separation;
+		cbChangesOnResize.mProjection._41 = convergence;
+		cbChangesOnResize.mProjection = XMMatrixTranspose(cbChangesOnResize.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pCBChangeOnResize, 0, nullptr, &cbChangesOnResize, 0, 0);
+
 		Render();
 	}
 
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
 	if (SUCCEEDED(status))
 	{
+		cbChangesOnResize.mProjection = g_Projection;
+		cbChangesOnResize.mProjection._31 += separation;
+		cbChangesOnResize.mProjection._41 = -convergence;
+		cbChangesOnResize.mProjection = XMMatrixTranspose(cbChangesOnResize.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pCBChangeOnResize, 0, nullptr, &cbChangesOnResize, 0, 0);
+
 		Render();
 	}
 
