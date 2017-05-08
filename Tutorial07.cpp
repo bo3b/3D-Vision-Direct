@@ -19,6 +19,20 @@
 //	but still demonstrate using 3D Vision Direct Mode, using DX11.
 //	The code was modified as little as possible, so the pieces demonstrated
 //	by the Tutorial07 are still valid.
+//
+//	Some documention used for this include this whitepaper from NVidia.
+//	http://www.nvidia.com/docs/io/40505/wp-05482-001_v01-final.pdf
+//	Be wary of that document, the code is completely broken, and misleading
+//	in a lot of aspects.  The broad brush strokes are correct.
+//
+//	The Stereoscopy pdf/presentation gives some good details on how it
+//	all works, and a better structure for Direct Mode.
+//	http://www.nvidia.com/content/PDF/GDC2011/Stereoscopy.pdf
+//
+//	This sample is old, but it includes some details on modifying the
+//	projection matrix directly that were very helpful. 
+//	http://developer.download.nvidia.com/whitepapers/2011/StereoUnproject.zip
+// 
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
