@@ -11,7 +11,16 @@
 // PARTICULAR PURPOSE.
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
+//
+//
+// Bo3b: 5-8-17
+//	This sample is derived from the Microsoft Tutorial07 sample in the 
+//	DirectX SDK.  The goal was to use as simple an example as possible
+//	but still demonstrate using 3D Vision Direct Mode, using DX11.
+//	The code was modified as little as possible, so the pieces demonstrated
+//	by the Tutorial07 are still valid.
 //--------------------------------------------------------------------------------------
+
 #include <windows.h>
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
@@ -402,15 +411,16 @@ HRESULT InitDevice()
 		hr = dxgiFactory->CreateSwapChain(g_pd3dDevice, &sd, &g_pSwapChain);
 	}
 
-	// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
-	//dxgiFactory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
-
-	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
 	if (FAILED(hr))
 		return hr;
 
 	dxgiFactory->Release();
 
+	// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
+	//dxgiFactory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
+	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
+	// Vision will not activate.
+	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
 	if (FAILED(hr))
 		return hr;
 
@@ -759,7 +769,7 @@ void Render()
 	//
 	// Render the cube
 	//
-	// Projection matrix in CBChangeOnResize determines eye.
+	// Projection matrix in g_pCBChangeOnResize determines eye view.
 	//
 	g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
 	g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBNeverChanges);
@@ -809,6 +819,12 @@ void RenderFrame()
 	cb.vMeshColor = g_vMeshColor;
 	g_pImmediateContext->UpdateSubresource(g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0);
 
+	//
+	// This now includes changing CBChangeOnResize each frame as well, because
+	// we need to update the Projection matrix each frame, in case the user changes
+	// the 3D settings.
+	// The variable names are a bit misleading at present.
+	//
 	NvAPI_Status status;
 	CBChangeOnResize cbChangesOnResize;
 	float pConvergence;
@@ -825,7 +841,10 @@ void RenderFrame()
 
 	//
 	// Drawing same object twice, once for each eye.
-	// Eye specific setup include ViewPort and Projection matrix.
+	// Eye specific setup is for the Projection matrix.
+	// The _31 parameter is the X translation for the off center Projection.
+	// The _41 parameter, I don't presently know what it is, but this
+	// sequence works to handle both convergence and separation hot keys properly.
 	//
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
 	if (SUCCEEDED(status))
@@ -853,6 +872,9 @@ void RenderFrame()
 
 	//
 	// Present our back buffer to our front buffer
+	//
+	// In stereo mode, the driver knows to use the 2x width buffer, and
+	// present each eye in order.
 	//
 	g_pSwapChain->Present(0, 0);
 }
