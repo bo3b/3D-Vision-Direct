@@ -107,8 +107,8 @@ XMMATRIX                            g_Projection;
 XMFLOAT4                            g_vMeshColor(0.7f, 0.7f, 0.7f, 1.0f);
 
 StereoHandle						g_StereoHandle;
-float								g_ScreenWidth = 1280;
-float								g_ScreenHeight = 720;
+UINT								g_ScreenWidth = 1280;
+UINT								g_ScreenHeight = 720;
 
 
 //--------------------------------------------------------------------------------------
@@ -483,8 +483,8 @@ HRESULT InitDevice()
 	// This viewport is 2x the screen width.  The documentation directly contradicts
 	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = g_ScreenWidth * 2;		// Direct stereo needs the viewport 2x as well
-	vp.Height = g_ScreenHeight;
+	vp.Width = (FLOAT)g_ScreenWidth * 2;		// Direct stereo needs the viewport 2x as well
+	vp.Height = (FLOAT)g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
 	vp.TopLeftX = 0;
@@ -687,7 +687,7 @@ HRESULT InitDevice()
 	// Initialize the projection matrix
 	// For the projection matrix, the shaders know nothing about being in stereo, 
 	// so this needs to be only ScreenWidth, one per eye.
-	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, g_ScreenWidth / g_ScreenHeight, 0.01f, 100.0f);
+	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, (float)g_ScreenWidth / (float)g_ScreenHeight, 0.01f, 100.0f);
 
 	CBChangeOnResize cbChangesOnResize;
 	cbChangesOnResize.mProjection = XMMatrixTranspose(g_Projection);
