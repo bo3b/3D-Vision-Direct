@@ -417,6 +417,7 @@
     <Image Include="seafloor.dds" />
   </ItemGroup>
   <ItemGroup>
+    <Library Include="nvapi.lib" />
     <Library Include="nvapi64.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

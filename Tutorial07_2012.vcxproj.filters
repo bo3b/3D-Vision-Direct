@@ -9,6 +9,9 @@
       <UniqueIdentifier>{2c3d4c8c-5d1a-459a-a05a-a4e4b608a44e}</UniqueIdentifier>
       <Extensions>fx;fxh;hlsl</Extensions>
     </Filter>
+    <Filter Include="NvAPI">
+      <UniqueIdentifier>{36314250-470a-4cbd-b1cc-6e3306838831}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DDSTextureLoader.cpp" />
@@ -24,14 +27,30 @@
       <Filter>Resource Files</Filter>
     </ResourceCompile>
     <ClInclude Include="DDSTextureLoader.h" />
-    <ClInclude Include="nvapi.h" />
-    <ClInclude Include="nvapi_lite_common.h" />
-    <ClInclude Include="nvapi_lite_salend.h" />
-    <ClInclude Include="nvapi_lite_salstart.h" />
-    <ClInclude Include="nvapi_lite_stereo.h" />
-    <ClInclude Include="nvapi_lite_d3dext.h" />
-    <ClInclude Include="nvapi_lite_sli.h" />
-    <ClInclude Include="nvapi_lite_surround.h" />
+    <ClInclude Include="nvapi.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_common.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_d3dext.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_salend.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_salstart.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_sli.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_stereo.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="nvapi_lite_surround.h">
+      <Filter>NvAPI</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">
@@ -50,6 +69,11 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <Library Include="nvapi64.lib" />
+    <Library Include="nvapi.lib">
+      <Filter>NvAPI</Filter>
+    </Library>
+    <Library Include="nvapi64.lib">
+      <Filter>NvAPI</Filter>
+    </Library>
   </ItemGroup>
 </Project>
