@@ -1,7 +1,8 @@
 //--------------------------------------------------------------------------------------
 // File: Tutorial07.cpp
 //
-// This application demonstrates texturing
+// Originally the Tutorial07, now heavily modified to simply demonstrate
+// the use of 3D Vision Direct Mode.
 //
 // http://msdn.microsoft.com/en-us/library/windows/apps/ff729724.aspx
 //
@@ -33,6 +34,10 @@
 //	projection matrix directly that were very helpful. 
 //	http://developer.download.nvidia.com/whitepapers/2011/StereoUnproject.zip
 // 
+// Bo3b: 5-14-17
+//	Updated to simplify the code for this code branch.
+//	In this branch, the barest minimum of DX11 is used, to make the use of
+//	3D Vision Direct Mode more clear.
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
@@ -324,21 +329,19 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
-	// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
-	//dxgiFactory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
 	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
 	// Vision will not activate.
 	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
 	if (FAILED(hr))
 		return hr;
 
-	// Create a render target view
+	// Create a render target view from the backbuffer
+	//
+	// Since this is derived from the backbuffer, it will also be 2x in width.
 	ID3D11Texture2D* pBackBuffer = nullptr;
 	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
 	if (FAILED(hr))
 		return hr;
-
-	// RenderTargetView will be 2x width because it is built off of the swapchain
 	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
 	pBackBuffer->Release();
 	if (FAILED(hr))
@@ -363,6 +366,8 @@ HRESULT InitDevice()
 		return hr;
 
 	// Create the depth stencil view
+	//
+	// This is not strictly necessary for our 3D, but is almost always used.
 	D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
 	ZeroMemory(&descDSV, sizeof(descDSV));
 	descDSV.Format = descDepth.Format;
@@ -437,7 +442,7 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
-	// Create vertex buffer
+	// Create vertex buffer for the cube
 	SimpleVertex vertices[] =
 	{
 		{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
@@ -568,11 +573,13 @@ void CleanupDevice()
 	if (g_pVertexBuffer) g_pVertexBuffer->Release();
 	if (g_pIndexBuffer) g_pIndexBuffer->Release();
 	if (g_pVertexLayout) g_pVertexLayout->Release();
+
 	if (g_pVertexShader) g_pVertexShader->Release();
 	if (g_pPixelShader) g_pPixelShader->Release();
 	if (g_pDepthStencil) g_pDepthStencil->Release();
 	if (g_pDepthStencilView) g_pDepthStencilView->Release();
 	if (g_pRenderTargetView) g_pRenderTargetView->Release();
+
 	if (g_pSwapChain) g_pSwapChain->Release();
 	if (g_pImmediateContext) g_pImmediateContext->Release();
 	if (g_pd3dDevice) g_pd3dDevice->Release();
@@ -648,16 +655,10 @@ void Render()
 //--------------------------------------------------------------------------------------
 void RenderFrame()
 {
-	// Update our time
-	static float t = 0.0f;
-	static ULONGLONG timeStart = 0;
-	ULONGLONG timeCur = GetTickCount64();
-	if (timeStart == 0)
-		timeStart = timeCur;
-	t = (timeCur - timeStart) / 1000.0f;
-
+	//
 	// Rotate cube around the origin
-	g_World = XMMatrixRotationY(t);
+	//
+	g_World = XMMatrixRotationY(GetTickCount64() / 1000.0f);
 
 	//
 	// This now includes changing CBChangeOnResize each frame as well, because
