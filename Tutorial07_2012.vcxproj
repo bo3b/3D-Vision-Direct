@@ -397,11 +397,9 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="DDSTextureLoader.cpp" />
     <ClCompile Include="Tutorial07.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="DDSTextureLoader.h" />
     <ClInclude Include="nvapi.h" />
     <ClInclude Include="nvapi_lite_common.h" />
     <ClInclude Include="nvapi_lite_d3dext.h" />
@@ -412,9 +410,6 @@
     <ClInclude Include="nvapi_lite_surround.h" />
     <CLInclude Include="resource.h" />
     <ResourceCompile Include="Tutorial07.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="seafloor.dds" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="nvapi.lib" />

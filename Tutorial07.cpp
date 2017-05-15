@@ -40,7 +40,6 @@
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
-#include "DDSTextureLoader.h"
 #include "resource.h"
 
 #include "nvapi.h"
@@ -71,7 +70,6 @@ struct CBChangeOnResize
 struct CBChangesEveryFrame
 {
 	XMMATRIX mWorld;
-	XMFLOAT4 vMeshColor;
 };
 
 
@@ -99,12 +97,9 @@ ID3D11Buffer*                       g_pIndexBuffer = nullptr;
 ID3D11Buffer*                       g_pCBNeverChanges = nullptr;
 ID3D11Buffer*                       g_pCBChangeOnResize = nullptr;
 ID3D11Buffer*                       g_pCBChangesEveryFrame = nullptr;
-ID3D11ShaderResourceView*           g_pTextureRV = nullptr;
-ID3D11SamplerState*                 g_pSamplerLinear = nullptr;
 XMMATRIX                            g_World;
 XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
-XMFLOAT4                            g_vMeshColor(0.7f, 0.7f, 0.7f, 1.0f);
 
 StereoHandle						g_StereoHandle;
 UINT								g_ScreenWidth = 1280;
@@ -652,25 +647,6 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
-	// Load the Texture
-	hr = CreateDDSTextureFromFile(g_pd3dDevice, L"seafloor.dds", nullptr, &g_pTextureRV);
-	if (FAILED(hr))
-		return hr;
-
-	// Create the sample state
-	D3D11_SAMPLER_DESC sampDesc;
-	ZeroMemory(&sampDesc, sizeof(sampDesc));
-	sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	sampDesc.MinLOD = 0;
-	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	hr = g_pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear);
-	if (FAILED(hr))
-		return hr;
-
 	// Initialize the world matrices
 	g_World = XMMatrixIdentity();
 
@@ -706,8 +682,6 @@ void CleanupDevice()
 
 	if (g_pImmediateContext) g_pImmediateContext->ClearState();
 
-	if (g_pSamplerLinear) g_pSamplerLinear->Release();
-	if (g_pTextureRV) g_pTextureRV->Release();
 	if (g_pCBNeverChanges) g_pCBNeverChanges->Release();
 	if (g_pCBChangeOnResize) g_pCBChangeOnResize->Release();
 	if (g_pCBChangesEveryFrame) g_pCBChangesEveryFrame->Release();
@@ -791,8 +765,6 @@ void Render()
 	g_pImmediateContext->VSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
 	g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 	g_pImmediateContext->PSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
-	g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
-	g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
 	g_pImmediateContext->DrawIndexed(36, 0, 0);
 }
 
@@ -820,17 +792,11 @@ void RenderFrame()
 	// Rotate cube around the origin
 	g_World = XMMatrixRotationY(t);
 
-	// Modify the color
-	g_vMeshColor.x = (sinf(t * 1.0f) + 1.0f) * 0.5f;
-	g_vMeshColor.y = (cosf(t * 3.0f) + 1.0f) * 0.5f;
-	g_vMeshColor.z = (sinf(t * 5.0f) + 1.0f) * 0.5f;
-
 	//
 	// Update variables that change once per frame
 	//
 	CBChangesEveryFrame cb;
 	cb.mWorld = XMMatrixTranspose(g_World);
-	cb.vMeshColor = g_vMeshColor;
 	g_pImmediateContext->UpdateSubresource(g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0);
 
 	//

@@ -7,8 +7,6 @@
 //--------------------------------------------------------------------------------------
 // Constant Buffer Variables
 //--------------------------------------------------------------------------------------
-Texture2D txDiffuse : register( t0 );
-SamplerState samLinear : register( s0 );
 
 cbuffer cbNeverChanges : register( b0 )
 {
@@ -23,7 +21,6 @@ cbuffer cbChangeOnResize : register( b1 )
 cbuffer cbChangesEveryFrame : register( b2 )
 {
     matrix World;
-    float4 vMeshColor;
 };
 
 
@@ -61,5 +58,5 @@ PS_INPUT VS( VS_INPUT input )
 //--------------------------------------------------------------------------------------
 float4 PS( PS_INPUT input) : SV_Target
 {
-    return txDiffuse.Sample( samLinear, input.Tex ) * vMeshColor;
+    return float4(0.5, 0.5, 0.5, 1);
 }

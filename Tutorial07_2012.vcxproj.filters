@@ -14,9 +14,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="DDSTextureLoader.cpp" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="Tutorial07.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -26,7 +23,6 @@
     <ResourceCompile Include="Tutorial07.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
-    <ClInclude Include="DDSTextureLoader.h" />
     <ClInclude Include="nvapi.h">
       <Filter>NvAPI</Filter>
     </ClInclude>
@@ -62,11 +58,6 @@
     <FxCompile Include="Tutorial07_VS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="seafloor.dds">
-      <Filter>Resource Files</Filter>
-    </Image>
   </ItemGroup>
   <ItemGroup>
     <Library Include="nvapi.lib">
