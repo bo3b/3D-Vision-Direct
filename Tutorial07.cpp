@@ -57,19 +57,11 @@ struct SimpleVertex
 	XMFLOAT2 Tex;
 };
 
-struct CBNeverChanges
-{
-	XMMATRIX mView;
-};
-
-struct CBChangeOnResize
-{
-	XMMATRIX mProjection;
-};
-
-struct CBChangesEveryFrame
+struct SharedCB
 {
 	XMMATRIX mWorld;
+	XMMATRIX mView;
+	XMMATRIX mProjection;
 };
 
 
@@ -94,9 +86,9 @@ ID3D11PixelShader*                  g_pPixelShader = nullptr;
 ID3D11InputLayout*                  g_pVertexLayout = nullptr;
 ID3D11Buffer*                       g_pVertexBuffer = nullptr;
 ID3D11Buffer*                       g_pIndexBuffer = nullptr;
-ID3D11Buffer*                       g_pCBNeverChanges = nullptr;
-ID3D11Buffer*                       g_pCBChangeOnResize = nullptr;
-ID3D11Buffer*                       g_pCBChangesEveryFrame = nullptr;
+
+ID3D11Buffer*                       g_pSharedCB = nullptr;
+
 XMMATRIX                            g_World;
 XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
@@ -628,26 +620,16 @@ HRESULT InitDevice()
 	// Set primitive topology
 	g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	// Create the constant buffers
+	// Create the constant buffer
 	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(CBNeverChanges);
+	bd.ByteWidth = sizeof(SharedCB);
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	bd.CPUAccessFlags = 0;
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBNeverChanges);
+	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
 	if (FAILED(hr))
 		return hr;
 
-	bd.ByteWidth = sizeof(CBChangeOnResize);
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangeOnResize);
-	if (FAILED(hr))
-		return hr;
-
-	bd.ByteWidth = sizeof(CBChangesEveryFrame);
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangesEveryFrame);
-	if (FAILED(hr))
-		return hr;
-
-	// Initialize the world matrices
+	// Initialize the world matrix
 	g_World = XMMatrixIdentity();
 
 	// Initialize the view matrix
@@ -656,18 +638,11 @@ HRESULT InitDevice()
 	XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 	g_View = XMMatrixLookAtLH(Eye, At, Up);
 
-	CBNeverChanges cbNeverChanges;
-	cbNeverChanges.mView = XMMatrixTranspose(g_View);
-	g_pImmediateContext->UpdateSubresource(g_pCBNeverChanges, 0, nullptr, &cbNeverChanges, 0, 0);
-
 	// Initialize the projection matrix
+	//
 	// For the projection matrix, the shaders know nothing about being in stereo, 
 	// so this needs to be only ScreenWidth, one per eye.
 	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, (float)g_ScreenWidth / (float)g_ScreenHeight, 0.01f, 100.0f);
-
-	CBChangeOnResize cbChangesOnResize;
-	cbChangesOnResize.mProjection = XMMatrixTranspose(g_Projection);
-	g_pImmediateContext->UpdateSubresource(g_pCBChangeOnResize, 0, nullptr, &cbChangesOnResize, 0, 0);
 
 	return S_OK;
 }
@@ -682,9 +657,7 @@ void CleanupDevice()
 
 	if (g_pImmediateContext) g_pImmediateContext->ClearState();
 
-	if (g_pCBNeverChanges) g_pCBNeverChanges->Release();
-	if (g_pCBChangeOnResize) g_pCBChangeOnResize->Release();
-	if (g_pCBChangesEveryFrame) g_pCBChangesEveryFrame->Release();
+	if (g_pSharedCB) g_pSharedCB->Release();
 	if (g_pVertexBuffer) g_pVertexBuffer->Release();
 	if (g_pIndexBuffer) g_pIndexBuffer->Release();
 	if (g_pVertexLayout) g_pVertexLayout->Release();
@@ -757,14 +730,11 @@ void Render()
 	//
 	// Render the cube
 	//
-	// Projection matrix in g_pCBChangeOnResize determines eye view.
+	// Projection matrix in g_pSharedCB determines eye view.
 	//
 	g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-	g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBNeverChanges);
-	g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pCBChangeOnResize);
-	g_pImmediateContext->VSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
+	g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
 	g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-	g_pImmediateContext->PSSetConstantBuffers(2, 1, &g_pCBChangesEveryFrame);
 	g_pImmediateContext->DrawIndexed(36, 0, 0);
 }
 
@@ -793,20 +763,13 @@ void RenderFrame()
 	g_World = XMMatrixRotationY(t);
 
 	//
-	// Update variables that change once per frame
-	//
-	CBChangesEveryFrame cb;
-	cb.mWorld = XMMatrixTranspose(g_World);
-	g_pImmediateContext->UpdateSubresource(g_pCBChangesEveryFrame, 0, nullptr, &cb, 0, 0);
-
-	//
 	// This now includes changing CBChangeOnResize each frame as well, because
 	// we need to update the Projection matrix each frame, in case the user changes
 	// the 3D settings.
 	// The variable names are a bit misleading at present.
 	//
 	NvAPI_Status status;
-	CBChangeOnResize cbChangesOnResize;
+	SharedCB cb;
 	float pConvergence;
 	float pSeparationPercentage;
 	float pEyeSeparation;
@@ -829,11 +792,14 @@ void RenderFrame()
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
 	if (SUCCEEDED(status))
 	{
-		cbChangesOnResize.mProjection = g_Projection;
-		cbChangesOnResize.mProjection._31 -= separation;
-		cbChangesOnResize.mProjection._41 = convergence;
-		cbChangesOnResize.mProjection = XMMatrixTranspose(cbChangesOnResize.mProjection);
-		g_pImmediateContext->UpdateSubresource(g_pCBChangeOnResize, 0, nullptr, &cbChangesOnResize, 0, 0);
+		cb.mWorld = XMMatrixTranspose(g_World);
+		cb.mView = XMMatrixTranspose(g_View);
+
+		cb.mProjection = g_Projection;
+		cb.mProjection._31 -= separation;
+		cb.mProjection._41 = convergence;
+		cb.mProjection = XMMatrixTranspose(cb.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
 		Render();
 	}
@@ -841,11 +807,14 @@ void RenderFrame()
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
 	if (SUCCEEDED(status))
 	{
-		cbChangesOnResize.mProjection = g_Projection;
-		cbChangesOnResize.mProjection._31 += separation;
-		cbChangesOnResize.mProjection._41 = -convergence;
-		cbChangesOnResize.mProjection = XMMatrixTranspose(cbChangesOnResize.mProjection);
-		g_pImmediateContext->UpdateSubresource(g_pCBChangeOnResize, 0, nullptr, &cbChangesOnResize, 0, 0);
+		cb.mWorld = XMMatrixTranspose(g_World);
+		cb.mView = XMMatrixTranspose(g_View);
+
+		cb.mProjection = g_Projection;
+		cb.mProjection._31 += separation;
+		cb.mProjection._41 = -convergence;
+		cb.mProjection = XMMatrixTranspose(cb.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
 		Render();
 	}

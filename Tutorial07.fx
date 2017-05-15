@@ -8,19 +8,11 @@
 // Constant Buffer Variables
 //--------------------------------------------------------------------------------------
 
-cbuffer cbNeverChanges : register( b0 )
+cbuffer cbShared : register( b0 )
 {
-    matrix View;
-};
-
-cbuffer cbChangeOnResize : register( b1 )
-{
-    matrix Projection;
-};
-
-cbuffer cbChangesEveryFrame : register( b2 )
-{
-    matrix World;
+	matrix World;
+	matrix View;
+	matrix Projection;
 };
 
 
