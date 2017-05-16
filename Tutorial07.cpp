@@ -242,18 +242,6 @@ HRESULT ActivateStereo()
 	if (FAILED(status))
 		return status;
 
-	status = NvAPI_Stereo_Activate(g_StereoHandle);
-	if (FAILED(status))
-		return status;
-
-	NvU8 isStereoOn;
-	status = NvAPI_Stereo_IsActivated(g_StereoHandle, &isStereoOn);
-	if (FAILED(status) || !isStereoOn)
-	{
-		MessageBox(g_hWnd, L"3D Vision could not be activated.", L"Error", MB_OK);
-		return status;
-	}
-
 	return status;
 }
 
