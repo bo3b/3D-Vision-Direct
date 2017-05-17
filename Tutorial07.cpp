@@ -124,9 +124,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
-// 3dmigoto
-	//if (FAILED(InitStereo()))
-	//	return 0;
 
 	if (FAILED(InitDevice()))
 	{
@@ -201,37 +198,6 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
 
 //--------------------------------------------------------------------------------------
-// Setup nvapi, and enable stereo by direct mode for the app.
-// This must be called before the Device is created for Direct Mode to work.
-//--------------------------------------------------------------------------------------
-HRESULT InitStereo()
-{
-	NvAPI_Status status;
-
-	status = NvAPI_Initialize();
-	if (FAILED(status))
-		return status;
-
-	// The entire point is to show stereo.  
-	// If it's not enabled in the control panel, let the user know.
-	NvU8 stereoEnabled;
-	status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
-	if (FAILED(status) || !stereoEnabled)
-	{
-		MessageBox(g_hWnd, L"3D Vision is not enabled. Enable it in the NVidia Control Panel.", L"Error", MB_OK);
-		return status;
-	}
-
-	// 3dmigoto
-	//status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
-	//if (FAILED(status))
-	//	return status;
-
-	return status;
-}
-
-
-//--------------------------------------------------------------------------------------
 // Activate stereo for the given device.
 // This must be called after the device is created.
 //--------------------------------------------------------------------------------------
@@ -240,10 +206,6 @@ HRESULT ActivateStereo()
 	NvAPI_Status status;
 
 	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
-	if (FAILED(status))
-		return status;
-
-	status = NvAPI_Stereo_Activate(g_StereoHandle);
 	if (FAILED(status))
 		return status;
 
@@ -305,7 +267,7 @@ HRESULT InitDevice()
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
 	sd.BufferCount = 1;
-	sd.BufferDesc.Width = g_ScreenWidth;	// Swapchain needs to be 2x sized for direct stereo.  3dmigoto
+	sd.BufferDesc.Width = g_ScreenWidth;		// 3Dmigoto will automatically double this
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision 
@@ -324,13 +286,11 @@ HRESULT InitDevice()
 
 	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
 	// Vision will not activate.
-//	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
+	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
 	if (FAILED(hr))
 		return hr;
 
 	// Create a render target view from the backbuffer
-	//
-	// Since this is derived from the backbuffer, it will also be 2x in width.
 	ID3D11Texture2D* pBackBuffer = nullptr;
 	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
 	if (FAILED(hr))
@@ -372,10 +332,8 @@ HRESULT InitDevice()
 
 	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr); // g_pDepthStencilView);
 
-	// This viewport is 2x the screen width.  The documentation directly contradicts
-	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = (FLOAT)g_ScreenWidth;		// Direct stereo needs the viewport 2x as well  3dmigoto
+	vp.Width = (FLOAT)g_ScreenWidth;	// 3Dmigoto will automatically double this
 	vp.Height = (FLOAT)g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
@@ -544,9 +502,6 @@ HRESULT InitDevice()
 	g_View = XMMatrixLookAtLH(Eye, At, Up);
 
 	// Initialize the projection matrix
-	//
-	// For the projection matrix, the shaders know nothing about being in stereo, 
-	// so this needs to be only ScreenWidth, one per eye.
 	g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, (float)g_ScreenWidth / (float)g_ScreenHeight, 0.01f, 100.0f);
 
 	return S_OK;
