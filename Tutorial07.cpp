@@ -124,9 +124,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
-
-	if (FAILED(InitStereo()))
-		return 0;
+// 3dmigoto
+	//if (FAILED(InitStereo()))
+	//	return 0;
 
 	if (FAILED(InitDevice()))
 	{
@@ -222,9 +222,10 @@ HRESULT InitStereo()
 		return status;
 	}
 
-	status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
-	if (FAILED(status))
-		return status;
+	// 3dmigoto
+	//status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
+	//if (FAILED(status))
+	//	return status;
 
 	return status;
 }
@@ -239,6 +240,10 @@ HRESULT ActivateStereo()
 	NvAPI_Status status;
 
 	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
+	if (FAILED(status))
+		return status;
+
+	status = NvAPI_Stereo_Activate(g_StereoHandle);
 	if (FAILED(status))
 		return status;
 
@@ -300,7 +305,7 @@ HRESULT InitDevice()
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
 	sd.BufferCount = 1;
-	sd.BufferDesc.Width = g_ScreenWidth * 2;	// Swapchain needs to be 2x sized for direct stereo.
+	sd.BufferDesc.Width = g_ScreenWidth;	// Swapchain needs to be 2x sized for direct stereo.  3dmigoto
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision 
@@ -319,7 +324,7 @@ HRESULT InitDevice()
 
 	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
 	// Vision will not activate.
-	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
+//	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
 	if (FAILED(hr))
 		return hr;
 
@@ -335,42 +340,42 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
-	// Create depth stencil texture
-	D3D11_TEXTURE2D_DESC descDepth;
-	ZeroMemory(&descDepth, sizeof(descDepth));
-	descDepth.Width = g_ScreenWidth * 2;		// Direct stereo needs 2x size
-	descDepth.Height = g_ScreenHeight;
-	descDepth.MipLevels = 1;
-	descDepth.ArraySize = 1;
-	descDepth.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	descDepth.SampleDesc.Count = 1;
-	descDepth.SampleDesc.Quality = 0;
-	descDepth.Usage = D3D11_USAGE_DEFAULT;
-	descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-	descDepth.CPUAccessFlags = 0;
-	descDepth.MiscFlags = 0;
-	hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil);
-	if (FAILED(hr))
-		return hr;
+	//// Create depth stencil texture
+	//D3D11_TEXTURE2D_DESC descDepth;
+	//ZeroMemory(&descDepth, sizeof(descDepth));
+	//descDepth.Width = g_ScreenWidth;		// Direct stereo needs 2x size 3dmigoto? 
+	//descDepth.Height = g_ScreenHeight;
+	//descDepth.MipLevels = 1;
+	//descDepth.ArraySize = 1;
+	//descDepth.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	//descDepth.SampleDesc.Count = 1;
+	//descDepth.SampleDesc.Quality = 0;
+	//descDepth.Usage = D3D11_USAGE_DEFAULT;
+	//descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	//descDepth.CPUAccessFlags = 0;
+	//descDepth.MiscFlags = 0;
+	//hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil);
+	//if (FAILED(hr))
+	//	return hr;
 
-	// Create the depth stencil view
-	//
-	// This is not strictly necessary for our 3D, but is almost always used.
-	D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
-	ZeroMemory(&descDSV, sizeof(descDSV));
-	descDSV.Format = descDepth.Format;
-	descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-	descDSV.Texture2D.MipSlice = 0;
-	hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &descDSV, &g_pDepthStencilView);
-	if (FAILED(hr))
-		return hr;
+	//// Create the depth stencil view
+	////
+	//// This is not strictly necessary for our 3D, but is almost always used.
+	//D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
+	//ZeroMemory(&descDSV, sizeof(descDSV));
+	//descDSV.Format = descDepth.Format;
+	//descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+	//descDSV.Texture2D.MipSlice = 0;
+	//hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &descDSV, &g_pDepthStencilView);
+	//if (FAILED(hr))
+	//	return hr;
 
-	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
+	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr); // g_pDepthStencilView);
 
 	// This viewport is 2x the screen width.  The documentation directly contradicts
 	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = (FLOAT)g_ScreenWidth * 2;		// Direct stereo needs the viewport 2x as well
+	vp.Width = (FLOAT)g_ScreenWidth;		// Direct stereo needs the viewport 2x as well  3dmigoto
 	vp.Height = (FLOAT)g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
@@ -624,7 +629,7 @@ void Render()
 	// 
 	// Also done on a per-eye basis.
 	//
-	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+	//g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
 	//
 	// Render the cube
