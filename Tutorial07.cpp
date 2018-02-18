@@ -300,7 +300,7 @@ HRESULT InitDevice()
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
 	sd.BufferCount = 1;
-	sd.BufferDesc.Width = g_ScreenWidth * 2;	// Swapchain needs to be 2x sized for direct stereo.
+	sd.BufferDesc.Width = g_ScreenWidth;// *2;	// Swapchain needs to be 2x sized for direct stereo.
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision 
@@ -338,7 +338,7 @@ HRESULT InitDevice()
 	// Create depth stencil texture
 	D3D11_TEXTURE2D_DESC descDepth;
 	ZeroMemory(&descDepth, sizeof(descDepth));
-	descDepth.Width = g_ScreenWidth * 2;		// Direct stereo needs 2x size
+	descDepth.Width = g_ScreenWidth;// *2;		// Direct stereo needs 2x size
 	descDepth.Height = g_ScreenHeight;
 	descDepth.MipLevels = 1;
 	descDepth.ArraySize = 1;
@@ -370,7 +370,7 @@ HRESULT InitDevice()
 	// This viewport is 2x the screen width.  The documentation directly contradicts
 	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = (FLOAT)g_ScreenWidth * 2;		// Direct stereo needs the viewport 2x as well
+	vp.Width = (FLOAT)g_ScreenWidth;// *2;		// Direct stereo needs the viewport 2x as well
 	vp.Height = (FLOAT)g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
