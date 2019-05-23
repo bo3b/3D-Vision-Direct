@@ -4,7 +4,8 @@ Small stereoscopic sample demonstrating how to use 3D Vision Direct Mode using D
 I could not find any example code showing how to use Direct Mode, while just using the nvapi, so I developed this example.
 
 All older examples use a rendertarget with an extra line for the stereo signature.  This example works
-without requiring the stereo signature or any special setup, other than doubling the size of the backbuffer.
+without requiring the stereo signature or any special setup, ~~other than doubling the size of the backbuffer.~~
+ Default branch is now 'single-width' which is the preferred approach.
 <br>
 <br>
 
