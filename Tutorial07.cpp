@@ -41,12 +41,16 @@
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
+#include <stdio.h>
+#include <exception>
+
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
 #include "resource.h"
 
+#include "NktHookLib.h"
 #include "nvapi.h"
 #include "nvapi_lite_stereo.h"
 
@@ -100,6 +104,8 @@ StereoHandle						g_StereoHandle;
 UINT								g_ScreenWidth = 1280;
 UINT								g_ScreenHeight = 720;
 
+CNktHookLib nktInProc;
+
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
@@ -111,6 +117,7 @@ HRESULT ActivateStereo();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void RenderFrame();
+void HookNvapiQueryInterface();
 
 
 //--------------------------------------------------------------------------------------
@@ -119,6 +126,8 @@ void RenderFrame();
 //--------------------------------------------------------------------------------------
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
 {
+	HookNvapiQueryInterface();
+
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
@@ -713,3 +722,119 @@ void RenderFrame()
 	//
 	g_pSwapChain->Present(0, 0);
 }
+
+
+
+// --------------------------------------------------------------------------------------------------
+
+// The SetDriverMode override, where we can check the input mode.
+// This will be called directly after QueryInterface as the overriden
+// routine, and will call through to the original function.
+
+bool gDirectMode = false;
+
+typedef NvAPI_Status(__cdecl *tNvAPI_Stereo_SetDriverMode)(NV_STEREO_DRIVER_MODE mode);
+tNvAPI_Stereo_SetDriverMode pOrigNvAPI_Stereo_SetDriverMode = nullptr;
+
+NvAPI_Status __cdecl Hooked_NvAPI_Stereo_SetDriverMode(NV_STEREO_DRIVER_MODE mode)
+{
+	if (mode == NVAPI_STEREO_DRIVER_MODE_DIRECT)
+		gDirectMode = true;
+
+	NvAPI_Status ret = pOrigNvAPI_Stereo_SetDriverMode(mode);
+
+#ifdef _DEBUG
+	wchar_t info[512];
+	swprintf_s(info, _countof(info),
+		L"Hooked_NvAPI_Stereo_SetDriverMode - mode: %d  ret: %d\n", mode, ret);
+	::OutputDebugString(info);
+#endif
+
+	return ret;
+}
+
+
+// nvapi_QueryInterfaceType is not actually defined in any nvapi header files, as it is
+// internal to the .lib normally used.  We'll just create a definition using 3Dmigoto
+// code as a reference.  It's worth noting that this function requires __cdecl, not __stdcall.
+//
+// The return result from this function is actually the address of the function 
+// specified by the offset.  In our case, 0x5E8F0BEC is for _NvAPI_Stereo_SetDriverMode.
+
+UINT32 SetDriverMode = 0x5E8F0BEC;
+
+UINT32* (__cdecl *pOrignvapi_QueryInterface)(
+	UINT32 offset
+	) = nullptr;
+
+UINT32* __cdecl Hooked_nvapi_QueryInterface(
+	UINT32 offset)
+{
+
+#ifdef _DEBUG
+	wchar_t info[512];
+	swprintf_s(info, _countof(info),
+		L"Hooked_nvapi_QueryInterfaceType - offset: 0x%x\n", offset);
+	::OutputDebugString(info);
+#endif
+
+	// We don't need to do any processing here, we just need to notice whenever
+	// a game sets the DriverMode to Direct.  So pass through everything normally.
+
+	UINT32* ptr = pOrignvapi_QueryInterface(offset);
+
+
+	// If we are calling for _NvAPI_Stereo_SetDriverMode(0x5E8F0BEC), set the return
+	// pointer to be our override routine instead.
+
+	if (offset == SetDriverMode)
+	{
+		pOrigNvAPI_Stereo_SetDriverMode = reinterpret_cast<tNvAPI_Stereo_SetDriverMode>(ptr);
+		ptr = reinterpret_cast<UINT32*>(Hooked_NvAPI_Stereo_SetDriverMode);
+	}
+
+	return ptr;
+}
+
+
+// Hook the nvapi.  This is required to support Direct Mode in the driver, for 
+// games like Tomb Raider and Deus Ex that have no SBS.
+// There is only one call in the nvidia dll, nvapi_QueryInterface.  That will
+// be hooked, and then the _NvAPI_Stereo_SetDriverMode call will be watched
+// so that we can see when a game sets Direct Mode and change behavior in Present.
+// This is also done in DeviarePlugin at OnLoad.
+
+void HookNvapiQueryInterface()
+{
+#if (_WIN64)
+#define REAL_NVAPI_DLL L"nvapi64.dll"
+#else
+#define REAL_NVAPI_DLL L"nvapi.dll"
+#endif
+
+	HMODULE hNvapi = LoadLibrary(REAL_NVAPI_DLL);
+	if (hNvapi == NULL)
+		throw std::exception("Failed to LoadLibrary for nvapi.dll");
+
+	FARPROC pQueryInterface = GetProcAddress(hNvapi, "nvapi_QueryInterface");
+	if (pQueryInterface == NULL)
+		throw std::exception("Failed to GetProcAddress for nvapi_QueryInterface");
+
+	// This could be called multiple times by a game, so let's be sure to
+	// only hook once.
+	if (pOrignvapi_QueryInterface == nullptr && pQueryInterface != nullptr)
+	{
+#ifdef _DEBUG 
+		nktInProc.SetEnableDebugOutput(TRUE);
+#endif
+
+		SIZE_T hook_id;
+		DWORD dwOsErr = nktInProc.Hook(&hook_id, (void**)&pOrignvapi_QueryInterface,
+			pQueryInterface, Hooked_nvapi_QueryInterface, 0);
+
+		if (FAILED(dwOsErr))
+			throw std::exception("Failed to hook NVAPI.DLL::nvapi_QueryInterface");
+	}
+
+}
+

@@ -12,6 +12,9 @@
     <Filter Include="NvAPI">
       <UniqueIdentifier>{36314250-470a-4cbd-b1cc-6e3306838831}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Nektra In-Proc">
+      <UniqueIdentifier>{2249e61b-e353-467f-bce8-71ceee0ebb27}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Tutorial07.cpp" />
@@ -47,6 +50,9 @@
     <ClInclude Include="nvapi_lite_surround.h">
       <Filter>NvAPI</Filter>
     </ClInclude>
+    <ClInclude Include="NktHookLib.h">
+      <Filter>Nektra In-Proc</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">
@@ -65,6 +71,9 @@
     </Library>
     <Library Include="nvapi64.lib">
       <Filter>NvAPI</Filter>
+    </Library>
+    <Library Include="NktHookLib64_Debug.lib">
+      <Filter>Nektra In-Proc</Filter>
     </Library>
   </ItemGroup>
 </Project>
