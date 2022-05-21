@@ -42,6 +42,7 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi1_2.h>
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
@@ -76,9 +77,10 @@ struct SharedCB
 HINSTANCE                           g_hInst = nullptr;
 HWND                                g_hWnd = nullptr;
 
-ID3D11Device*                       g_pd3dDevice = nullptr;
+IDXGIFactory2*                      g_pFactory2          = nullptr;
+ID3D11Device*                       g_pd3dDevice        = nullptr;
 ID3D11DeviceContext*                g_pImmediateContext = nullptr;
-IDXGISwapChain*                     g_pSwapChain = nullptr;
+IDXGISwapChain1*                    g_pSwapChain1         = nullptr;
 
 ID3D11RenderTargetView*             g_pRenderTargetView = nullptr;
 ID3D11Texture2D*                    g_pDepthStencil = nullptr;
@@ -97,8 +99,8 @@ XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 
 StereoHandle						g_StereoHandle;
-UINT								g_ScreenWidth = 1280;
-UINT								g_ScreenHeight = 720;
+UINT								g_ScreenWidth = 2560;
+UINT								g_ScreenHeight = 1440;
 
 
 //--------------------------------------------------------------------------------------
@@ -125,8 +127,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
 
-	if (FAILED(InitStereo()))
-		return 0;
+	//if (FAILED(InitStereo()))
+	//	return 0;
 
 	if (FAILED(InitDevice()))
 	{
@@ -136,8 +138,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 	if (FAILED(ActivateStereo()))
 	{
-		CleanupDevice();
-		return 0;
+		//CleanupDevice();
+		//return 0;
 	}
 
 	// Main message loop
@@ -186,7 +188,7 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 	// Create window
 	g_hInst = hInstance;
 	RECT rc = { 0, 0, g_ScreenWidth, g_ScreenHeight };
-	AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+    AdjustWindowRect(&rc, WS_POPUP, FALSE);
 	g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
 		CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance,
@@ -211,6 +213,7 @@ HRESULT InitStereo()
 	status = NvAPI_Initialize();
 	if (FAILED(status))
 		return status;
+
 
 	// The entire point is to show stereo.  
 	// If it's not enabled in the control panel, let the user know.
@@ -237,6 +240,8 @@ HRESULT InitStereo()
 HRESULT ActivateStereo()
 {
 	NvAPI_Status status;
+
+	//DebugBreak();
 
 	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
 	if (FAILED(status))
@@ -288,46 +293,82 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
 //--------------------------------------------------------------------------------------
 // Create Direct3D device and swap chain
 //--------------------------------------------------------------------------------------
+
+// Some experimental code, trying out a path using DXGI1.2 and an HDMI stereo output.
+// This doesn't work on 3D Vision hardware but might work on HDMI 1.2 hardware with
+// TAB 1080p output.  Pretty sure this is the 3D TV Play path, which still works in
+// 5xx drivers.
+
 HRESULT InitDevice()
 {
-	HRESULT hr = S_OK;
+    HRESULT      hr                = S_OK;
+    NvAPI_Status status            = NVAPI_OK;
+    UINT         createDeviceFlags = 0;
 
-	UINT createDeviceFlags = 0;
+
+	IDXGIAdapter1* pAdapter1 = nullptr;
+	hr = CreateDXGIFactory(__uuidof(IDXGIFactory2), (void**)(&g_pFactory2));
+    if (FAILED(hr))
+        return hr;
+    hr = g_pFactory2->EnumAdapters1(0, &pAdapter1);
+    if (FAILED(hr))
+        return hr;
+
+
+    createDeviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifdef _DEBUG
-	createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+    createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-	DXGI_SWAP_CHAIN_DESC sd;
-	ZeroMemory(&sd, sizeof(sd));
-	sd.BufferCount = 1;
-	sd.BufferDesc.Width = g_ScreenWidth;// *2;	// Swapchain needs to be 2x sized for direct stereo.
-	sd.BufferDesc.Height = g_ScreenHeight;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision 
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = g_hWnd;
-	sd.SampleDesc.Count = 1;
-	sd.SampleDesc.Quality = 0;
-	sd.Windowed = TRUE;
+    // Create the simple DX11, Device, SwapChain, and Context.
+    hr = D3D11CreateDevice(pAdapter1, D3D_DRIVER_TYPE_UNKNOWN, NULL, createDeviceFlags, NULL, 0, D3D11_SDK_VERSION, &g_pd3dDevice, NULL, &g_pImmediateContext);
+    if (FAILED(hr))
+        return hr;
 
-	// Create the simple DX11, Device, SwapChain, and Context.
-	hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0,
-		D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
-	if (FAILED(hr))
-		return hr;
+    DXGI_SWAP_CHAIN_DESC1 sd;
+    ZeroMemory(&sd, sizeof(sd));
+    sd.BufferCount                        = 1;
+    sd.Width                              = 1920;  //g_ScreenWidth;  // *2;	// Swapchain needs to be 2x sized for direct stereo.
+    sd.Height                             = 1080;  //g_ScreenHeight;
+    sd.Format                             = DXGI_FORMAT_B8G8R8A8_UNORM;
+    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.SampleDesc.Count                   = 1;
+    sd.SampleDesc.Quality                 = 0;
+    sd.Stereo                             = true;
+    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
 
-	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC sdFse = {};
+    sdFse.RefreshRate.Numerator           = 24000;
+    sdFse.RefreshRate.Denominator         = 1001;  // Needs to be 120Hz for 3D Vision
+    sdFse.Windowed                        = false;
+
+    hr                                    = g_pFactory2->CreateSwapChainForHwnd(g_pd3dDevice, g_hWnd, &sd, NULL, NULL, &g_pSwapChain1);
+    if (FAILED(hr))
+        return hr;
+
+    status = NvAPI_Initialize();
+    if (FAILED(status))
+        return status;
+
+    status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
+    if (FAILED(status))
+        return status;
+    status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
+    if (FAILED(status))
+        return status;
+
+
+    // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
 	// Vision will not activate.
-	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
-	if (FAILED(hr))
-		return hr;
+	//hr = g_pSwapChain1->SetFullscreenState(TRUE, nullptr);
+	//if (FAILED(hr))
+	//	return hr;
 
 	// Create a render target view from the backbuffer
 	//
 	// Since this is derived from the backbuffer, it will also be 2x in width.
 	ID3D11Texture2D* pBackBuffer = nullptr;
-	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
+	hr = g_pSwapChain1->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
 	if (FAILED(hr))
 		return hr;
 	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
@@ -553,7 +594,7 @@ HRESULT InitDevice()
 //--------------------------------------------------------------------------------------
 void CleanupDevice()
 {
-	if (g_pSwapChain) g_pSwapChain->SetFullscreenState(FALSE, nullptr);
+	if (g_pSwapChain1) g_pSwapChain1->SetFullscreenState(FALSE, nullptr);
 
 	if (g_pImmediateContext) g_pImmediateContext->ClearState();
 
@@ -568,7 +609,7 @@ void CleanupDevice()
 	if (g_pDepthStencilView) g_pDepthStencilView->Release();
 	if (g_pRenderTargetView) g_pRenderTargetView->Release();
 
-	if (g_pSwapChain) g_pSwapChain->Release();
+	if (g_pSwapChain1) g_pSwapChain1->Release();
 	if (g_pImmediateContext) g_pImmediateContext->Release();
 	if (g_pd3dDevice) g_pd3dDevice->Release();
 
@@ -660,12 +701,12 @@ void RenderFrame()
 	float pSeparationPercentage;
 	float pEyeSeparation;
 
-	status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
-	status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
-	status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
+	//status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
+	//status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
+	//status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
 
-	float separation = pEyeSeparation * pSeparationPercentage / 100;
-	float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
+	float           separation = 50.0;  //    pEyeSeparation* pSeparationPercentage / 100;
+    float           convergence = 40.0;     //pEyeSeparation* pSeparationPercentage / 100 * pConvergence;
 
 
 	//
@@ -711,5 +752,5 @@ void RenderFrame()
 	// In stereo mode, the driver knows to use the 2x width buffer, and
 	// present each eye in order.
 	//
-	g_pSwapChain->Present(0, 0);
+	g_pSwapChain1->Present(0, 0);
 }
