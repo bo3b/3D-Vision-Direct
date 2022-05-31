@@ -140,11 +140,11 @@ int WINAPI              wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hP
         return 0;
     }
 
-    //if (FAILED(InitDX9Device()))
-    //{
-    //	CleanupDevice();
-    //	return 0;
-    //}
+    if (FAILED(InitDX9Device()))
+    {
+        CleanupDevice();
+        return 0;
+    }
 
     if (FAILED(ActivateStereo()))
     {
@@ -328,15 +328,15 @@ HRESULT InitDX11Device()
 
     // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
     // Vision will not activate.
-    hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
-    if (FAILED(hr))
-        return hr;
+    //hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
+    //if (FAILED(hr))
+    //    return hr;
 
     // DX11 reports that if we are using Flip_Sequential, that we must ResizeBuffers too.
     // Setting everything to hard coded 2560x1440 for simplified testing.
-    hr = g_pSwapChain->ResizeBuffers(2, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
-    if (FAILED(hr))
-        return hr;
+    //hr = g_pSwapChain->ResizeBuffers(2, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+    //if (FAILED(hr))
+    //    return hr;
 
     // Create a render target view from the backbuffer
     // There are now two of these, each the same size as backbuffer.
@@ -477,8 +477,7 @@ HRESULT InitDX11Device()
             {XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
             {XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
             {XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}
-        };
+            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}};
 
     D3D11_BUFFER_DESC bd;
     ZeroMemory(&bd, sizeof(bd));
@@ -568,23 +567,29 @@ HRESULT InitDX11Device()
 
 HRESULT InitDX9Device()
 {
+    HRESULT hr;
+
     g_d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
 
     D3DPRESENT_PARAMETERS d3dpp;
 
     ZeroMemory(&d3dpp, sizeof(d3dpp));
-    d3dpp.Windowed               = TRUE;
-    d3dpp.SwapEffect             = D3DSWAPEFFECT_DISCARD;
-    d3dpp.hDeviceWindow          = g_hWnd;
-    d3dpp.BackBufferFormat       = D3DFMT_A8R8G8B8;
-    d3dpp.BackBufferWidth        = g_ScreenWidth;
-    d3dpp.BackBufferHeight       = g_ScreenHeight;
-    d3dpp.EnableAutoDepthStencil = TRUE;
-    d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+    d3dpp.BackBufferWidth      = g_ScreenWidth;
+    d3dpp.BackBufferHeight     = g_ScreenHeight;
+    d3dpp.BackBufferFormat     = D3DFMT_UNKNOWN;
+    d3dpp.BackBufferCount      = 1;
+    d3dpp.SwapEffect           = D3DSWAPEFFECT_FLIP;
+    d3dpp.hDeviceWindow        = g_hWnd;
+    d3dpp.Windowed             = TRUE;
+    //d3dpp.EnableAutoDepthStencil = TRUE;
+    //d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+    d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 
     // create the DX9 device we can use for Direct Mode output
 
-    g_d3d9->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &g_device9);
+    hr                         = g_d3d9->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &g_device9);
+    if (FAILED(hr))
+        return hr;
 
     return S_OK;
 }
@@ -710,11 +715,12 @@ void Render(int eye)
 void RenderFrame()
 {
     SharedCB cb;
+    HRESULT  hr;
 
     //
     // Rotate cube around the origin
     //
-    g_World             = XMMatrixRotationY(GetTickCount64() / 1000.0f);
+    g_World = XMMatrixRotationY(GetTickCount64() / 1000.0f);
 
     //
     // This now includes changing CBChangeOnResize each frame as well, because
@@ -743,31 +749,42 @@ void RenderFrame()
     // The _41 parameter, I don't presently know what it is, but this
     // sequence works to handle both convergence and separation hot keys properly.
     //
-    NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-    if (SUCCEEDED(status))
+
+    g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(1, 1, 0, 1), 0, 0);
+
+    hr = g_device9->BeginScene();
+    if (FAILED(hr))
+        return;
     {
-        g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
+        //NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+        //if (SUCCEEDED(status))
+        {
+            g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
 
-        cb.mWorld      = XMMatrixTranspose(g_World);
-        cb.mView       = XMMatrixTranspose(g_View);
-        cb.mProjection = XMMatrixTranspose(g_Projection);
-        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+            cb.mWorld      = XMMatrixTranspose(g_World);
+            cb.mView       = XMMatrixTranspose(g_View);
+            cb.mProjection = XMMatrixTranspose(g_Projection);
+            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-        Render(L);
+            Render(L);
+        }
+
+        //status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
+        //if (SUCCEEDED(status))
+        {
+            g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
+
+            cb.mWorld      = XMMatrixTranspose(g_World);
+            cb.mView       = XMMatrixTranspose(g_View);
+            cb.mProjection = XMMatrixTranspose(g_Projection);
+            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+            Render(R);
+        }
     }
-
-    status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-    if (SUCCEEDED(status))
-    {
-        g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
-
-        cb.mWorld      = XMMatrixTranspose(g_World);
-        cb.mView       = XMMatrixTranspose(g_View);
-        cb.mProjection = XMMatrixTranspose(g_Projection);
-        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-        Render(R);
-    }
+    hr = g_device9->EndScene();
+    if (FAILED(hr))
+        return;
 
     //
     // Present our back buffer to our front buffer
@@ -775,5 +792,12 @@ void RenderFrame()
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    g_pSwapChain->Present(0, 0);
+    hr = g_pSwapChain->Present(0, 0);
+    if (FAILED(hr))
+        return;
+
+    // Now Present via the DX9 device as well. This will be the one actually showing.
+    hr = g_device9->Present(nullptr, nullptr, g_hWnd, nullptr);
+    if (FAILED(hr))
+        return;
 }
