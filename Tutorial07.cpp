@@ -713,7 +713,7 @@ void RenderFrame()
     //
     // Rotate cube around the origin
     //
-    g_World                  = XMMatrixRotationY(GetTickCount64() / 1000.0f);
+    g_World             = XMMatrixRotationY(GetTickCount64() / 1000.0f);
 
     //
     // This now includes changing CBChangeOnResize each frame as well, because
@@ -733,8 +733,8 @@ void RenderFrame()
     //float separation = pEyeSeparation * pSeparationPercentage / 100;
     //float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
 
-    float        separation  = 0.2f;
-    float        convergence = 1.0f;
+    //float        separation  = 0.2f;
+    //float        convergence = 1.0f;
     //
     // Drawing same object twice, once for each eye, into each eye buffer.
     // Eye specific setup is for the Projection matrix.
@@ -742,19 +742,14 @@ void RenderFrame()
     // The _41 parameter, I don't presently know what it is, but this
     // sequence works to handle both convergence and separation hot keys properly.
     //
-    NvAPI_Status status      = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+    NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
     if (SUCCEEDED(status))
     {
-        cb.mWorld      = g_World;
-        cb.mWorld      = XMMatrixTranslation(0.05f, 0.0f, 0.0f);
-        cb.mWorld      = XMMatrixTranspose(cb.mWorld);
+        g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
 
+        cb.mWorld      = XMMatrixTranspose(g_World);
         cb.mView       = XMMatrixTranspose(g_View);
-
-        cb.mProjection = g_Projection;
-        //cb.mProjection._31 -= separation;
-        //cb.mProjection._41 = convergence;
-        cb.mProjection = XMMatrixTranspose(cb.mProjection);
+        cb.mProjection = XMMatrixTranspose(g_Projection);
         g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
         Render(Eye::L);
@@ -763,16 +758,11 @@ void RenderFrame()
     status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
     if (SUCCEEDED(status))
     {
-        cb.mWorld      = g_World;
-        cb.mWorld      = XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
-        cb.mWorld      = XMMatrixTranspose(cb.mWorld);
+        g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
 
+        cb.mWorld      = XMMatrixTranspose(g_World);
         cb.mView       = XMMatrixTranspose(g_View);
-
-        cb.mProjection = g_Projection;
-        //cb.mProjection._31 += separation;
-        //cb.mProjection._41 = -convergence;
-        cb.mProjection = XMMatrixTranspose(cb.mProjection);
+        cb.mProjection = XMMatrixTranspose(g_Projection);
         g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
         Render(Eye::R);
