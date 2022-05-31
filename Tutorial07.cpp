@@ -40,16 +40,17 @@
 //	3D Vision Direct Mode more clear.
 //--------------------------------------------------------------------------------------
 
-#include <windows.h>
-#include <d3d11.h>
-#include <d3dcompiler.h>
-#include <directxmath.h>
-#include <directxcolors.h>
 #include "resource.h"
+
+#include <d3d11.h>
+#include <d3d9.h>
+#include <d3dcompiler.h>
+#include <directxcolors.h>
+#include <directxmath.h>
+#include <windows.h>
 
 #include "nvapi.h"
 #include "nvapi_lite_stereo.h"
-
 
 using namespace DirectX;
 
@@ -69,6 +70,11 @@ struct SharedCB
 	XMMATRIX mProjection;
 };
 
+enum class Eye : int
+{
+    L = 0,
+    R = 1
+};
 
 //--------------------------------------------------------------------------------------
 // Global Variables
@@ -80,9 +86,11 @@ ID3D11Device*                       g_pd3dDevice = nullptr;
 ID3D11DeviceContext*                g_pImmediateContext = nullptr;
 IDXGISwapChain*                     g_pSwapChain = nullptr;
 
-ID3D11RenderTargetView*             g_pRenderTargetView = nullptr;
-ID3D11Texture2D*                    g_pDepthStencil = nullptr;
-ID3D11DepthStencilView*             g_pDepthStencilView = nullptr;
+// One for each eye
+
+ID3D11RenderTargetView*             g_pRenderTargetView[2] = {};
+ID3D11Texture2D*                    g_pDepthStencil[2]     = {};
+ID3D11DepthStencilView*             g_pDepthStencilView[2] = {};
 
 ID3D11VertexShader*                 g_pVertexShader = nullptr;
 ID3D11PixelShader*                  g_pPixelShader = nullptr;
@@ -97,8 +105,11 @@ XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 
 StereoHandle						g_StereoHandle;
-UINT								g_ScreenWidth = 1280;
-UINT								g_ScreenHeight = 720;
+UINT								g_ScreenWidth = 2560;
+UINT								g_ScreenHeight = 1440;
+
+IDirect3D9*                         g_d3d9;
+IDirect3DDevice9*					g_device9;
 
 
 //--------------------------------------------------------------------------------------
@@ -106,7 +117,8 @@ UINT								g_ScreenHeight = 720;
 //--------------------------------------------------------------------------------------
 HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow);
 HRESULT InitStereo();
-HRESULT InitDevice();
+HRESULT InitDX11Device();
+HRESULT InitDX9Device();
 HRESULT ActivateStereo();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -128,11 +140,17 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	if (FAILED(InitStereo()))
 		return 0;
 
-	if (FAILED(InitDevice()))
+	if (FAILED(InitDX11Device()))
 	{
 		CleanupDevice();
 		return 0;
 	}
+
+	//if (FAILED(InitDX9Device()))
+	//{
+	//	CleanupDevice();
+	//	return 0;
+	//}
 
 	if (FAILED(ActivateStereo()))
 	{
@@ -185,7 +203,7 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
 	// Create window
 	g_hInst = hInstance;
-	RECT rc = { 0, 0, g_ScreenWidth, g_ScreenHeight };
+	RECT rc = { 0, 0, (LONG)g_ScreenWidth, (LONG)g_ScreenHeight };
 	AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 	g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
@@ -288,7 +306,7 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
 //--------------------------------------------------------------------------------------
 // Create Direct3D device and swap chain
 //--------------------------------------------------------------------------------------
-HRESULT InitDevice()
+HRESULT InitDX11Device()
 {
 	HRESULT hr = S_OK;
 
@@ -299,7 +317,7 @@ HRESULT InitDevice()
 
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
-	sd.BufferCount = 1;
+	sd.BufferCount = 2;
 	sd.BufferDesc.Width = g_ScreenWidth;// *2;	// Swapchain needs to be 2x sized for direct stereo.
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -310,6 +328,7 @@ HRESULT InitDevice()
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
 	sd.Windowed = TRUE;
+    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 
 	// Create the simple DX11, Device, SwapChain, and Context.
 	hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0,
@@ -323,6 +342,10 @@ HRESULT InitDevice()
 	if (FAILED(hr))
 		return hr;
 
+	hr = g_pSwapChain->ResizeBuffers(2, 0, 0, DXGI_FORMAT_UNKNOWN , 0);
+    if (FAILED(hr))
+        return hr;
+
 	// Create a render target view from the backbuffer
 	//
 	// Since this is derived from the backbuffer, it will also be 2x in width.
@@ -330,12 +353,14 @@ HRESULT InitDevice()
 	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
 	if (FAILED(hr))
 		return hr;
-	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
+	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[0]);
+	hr |= g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[1]);
 	pBackBuffer->Release();
 	if (FAILED(hr))
 		return hr;
 
-	// Create depth stencil texture
+    // Create depth stencil texture
+
 	D3D11_TEXTURE2D_DESC descDepth;
 	ZeroMemory(&descDepth, sizeof(descDepth));
 	descDepth.Width = g_ScreenWidth;// *2;		// Direct stereo needs 2x size
@@ -349,7 +374,8 @@ HRESULT InitDevice()
 	descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 	descDepth.CPUAccessFlags = 0;
 	descDepth.MiscFlags = 0;
-	hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil);
+	hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[0]);
+	hr |= g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[1]);
 	if (FAILED(hr))
 		return hr;
 
@@ -361,14 +387,13 @@ HRESULT InitDevice()
 	descDSV.Format = descDepth.Format;
 	descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 	descDSV.Texture2D.MipSlice = 0;
-	hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &descDSV, &g_pDepthStencilView);
+	hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil[0], &descDSV, &g_pDepthStencilView[0]);
+	hr |= g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil[1], &descDSV, &g_pDepthStencilView[1]);
 	if (FAILED(hr))
 		return hr;
 
-	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
-
 	// This viewport is 2x the screen width.  The documentation directly contradicts
-	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
+	// this usage and suggests per-eye specific ViewPorts, but this works correctly.  Err.
 	D3D11_VIEWPORT vp;
 	vp.Width = (FLOAT)g_ScreenWidth;// *2;		// Direct stereo needs the viewport 2x as well
 	vp.Height = (FLOAT)g_ScreenHeight;
@@ -547,6 +572,32 @@ HRESULT InitDevice()
 	return S_OK;
 }
 
+// Setup a DX9 output device, that will be done via Direct Mode.
+// SetDriverMode(DirectMode) must already be done.
+
+HRESULT InitDX9Device()
+{
+    g_d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
+
+    D3DPRESENT_PARAMETERS d3dpp;
+
+    ZeroMemory(&d3dpp, sizeof(d3dpp));
+    d3dpp.Windowed               = TRUE;
+    d3dpp.SwapEffect             = D3DSWAPEFFECT_DISCARD;
+    d3dpp.hDeviceWindow          = g_hWnd;
+    d3dpp.BackBufferFormat       = D3DFMT_A8R8G8B8;
+    d3dpp.BackBufferWidth        = g_ScreenWidth;
+    d3dpp.BackBufferHeight       = g_ScreenHeight;
+    d3dpp.EnableAutoDepthStencil = TRUE;
+    d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+
+    // create the DX9 device we can use for Direct Mode output
+
+    g_d3d9->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &g_device9);
+
+	return S_OK;
+}
+
 
 //--------------------------------------------------------------------------------------
 // Clean up the objects we've created
@@ -564,9 +615,12 @@ void CleanupDevice()
 
 	if (g_pVertexShader) g_pVertexShader->Release();
 	if (g_pPixelShader) g_pPixelShader->Release();
-	if (g_pDepthStencil) g_pDepthStencil->Release();
-	if (g_pDepthStencilView) g_pDepthStencilView->Release();
-	if (g_pRenderTargetView) g_pRenderTargetView->Release();
+	if (g_pDepthStencil[0]) g_pDepthStencil[0]->Release();
+	if (g_pDepthStencilView[0]) g_pDepthStencilView[0]->Release();
+	if (g_pRenderTargetView[0]) g_pRenderTargetView[0]->Release();
+	if (g_pDepthStencil[1]) g_pDepthStencil[1]->Release();
+	if (g_pDepthStencilView[1]) g_pDepthStencilView[1]->Release();
+	if (g_pRenderTargetView[1]) g_pRenderTargetView[1]->Release();
 
 	if (g_pSwapChain) g_pSwapChain->Release();
 	if (g_pImmediateContext) g_pImmediateContext->Release();
@@ -609,22 +663,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 //--------------------------------------------------------------------------------------
 // Render current image, eye independent.  
 //--------------------------------------------------------------------------------------
-void Render()
+void Render(Eye eye)
 {
+    int eye_ = (eye == Eye::L) ? 0 : 1;
+
 	//
 	// Clear the back buffer
 	//
 	// Even though this uses the g_pRenderTargetView, it only affects half the backbuffer,
 	// because we have set a specific eye.
 	//
-	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
+	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[eye_], Colors::MidnightBlue);
 
 	//
 	// Clear the depth buffer to 1.0 (max depth)
 	// 
 	// Also done on a per-eye basis.
 	//
-	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+	g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView[eye_], D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView[eye_], g_pDepthStencilView[eye_]);
 
 	//
 	// Render the cube
@@ -643,7 +701,9 @@ void Render()
 //--------------------------------------------------------------------------------------
 void RenderFrame()
 {
-	//
+	SharedCB cb;
+
+    //
 	// Rotate cube around the origin
 	//
 	g_World = XMMatrixRotationY(GetTickCount64() / 1000.0f);
@@ -654,55 +714,62 @@ void RenderFrame()
 	// the 3D settings.
 	// The variable names are a bit misleading at present.
 	//
-	NvAPI_Status status;
-	SharedCB cb;
-	float pConvergence;
-	float pSeparationPercentage;
-	float pEyeSeparation;
+	//NvAPI_Status status;
+	//float pConvergence;
+	//float pSeparationPercentage;
+	//float pEyeSeparation;
 
-	status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
-	status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
-	status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
+	//status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
+	//status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
+	//status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
 
-	float separation = pEyeSeparation * pSeparationPercentage / 100;
-	float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
+	//float separation = pEyeSeparation * pSeparationPercentage / 100;
+	//float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
 
 
+    float separation = 0.2f;
+    float   convergence = 1.0f;
 	//
-	// Drawing same object twice, once for each eye.
+	// Drawing same object twice, once for each eye, into each eye buffer.
 	// Eye specific setup is for the Projection matrix.
 	// The _31 parameter is the X translation for the off center Projection.
 	// The _41 parameter, I don't presently know what it is, but this
 	// sequence works to handle both convergence and separation hot keys properly.
 	//
-	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+	NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
 	if (SUCCEEDED(status))
 	{
-		cb.mWorld = XMMatrixTranspose(g_World);
+        cb.mWorld      = g_World;
+        cb.mWorld      = XMMatrixTranslation(0.05f, 0.0f, 0.0f);
+		cb.mWorld = XMMatrixTranspose(cb.mWorld);
+
 		cb.mView = XMMatrixTranspose(g_View);
 
 		cb.mProjection = g_Projection;
-		cb.mProjection._31 -= separation;
-		cb.mProjection._41 = convergence;
+		//cb.mProjection._31 -= separation;
+		//cb.mProjection._41 = convergence;
 		cb.mProjection = XMMatrixTranspose(cb.mProjection);
 		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-		Render();
+		Render(Eye::L);
 	}
 
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
 	if (SUCCEEDED(status))
 	{
-		cb.mWorld = XMMatrixTranspose(g_World);
-		cb.mView = XMMatrixTranspose(g_View);
+        cb.mWorld      = g_World;
+        cb.mWorld      = XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
+		cb.mWorld = XMMatrixTranspose(cb.mWorld);
+
+	    cb.mView = XMMatrixTranspose(g_View);
 
 		cb.mProjection = g_Projection;
-		cb.mProjection._31 += separation;
-		cb.mProjection._41 = -convergence;
+		//cb.mProjection._31 += separation;
+		//cb.mProjection._41 = -convergence;
 		cb.mProjection = XMMatrixTranspose(cb.mProjection);
 		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-		Render();
+				
+	    Render(Eye::R);
 	}
 
 	//
