@@ -70,12 +70,6 @@ struct SharedCB
     XMMATRIX mProjection;
 };
 
-enum class Eye : int
-{
-    L = 0,
-    R = 1
-};
-
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
@@ -88,6 +82,8 @@ IDXGISwapChain*         g_pSwapChain           = nullptr;
 
 // One for each eye
 
+const int               L                      = 0;
+const int               R                      = 1;
 ID3D11RenderTargetView* g_pRenderTargetView[2] = {};
 ID3D11Texture2D*        g_pDepthStencil[2]     = {};
 ID3D11DepthStencilView* g_pDepthStencilView[2] = {};
@@ -157,7 +153,7 @@ int WINAPI              wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hP
     }
 
     // Main message loop
-    MSG msg = {0};
+    MSG msg = {};
     while (WM_QUIT != msg.message)
     {
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
@@ -286,7 +282,7 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
     {
         if (pErrorBlob)
         {
-            OutputDebugStringA(reinterpret_cast<const char*>(pErrorBlob->GetBufferPointer()));
+            OutputDebugStringA(static_cast<const char*>(pErrorBlob->GetBufferPointer()));
             pErrorBlob->Release();
         }
         return hr;
@@ -312,7 +308,7 @@ HRESULT InitDX11Device()
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
     sd.BufferCount                        = 2;
-    sd.BufferDesc.Width                   = g_ScreenWidth;  // *2;	// Swapchain needs to be 2x sized for direct stereo.
+    sd.BufferDesc.Width                   = g_ScreenWidth;
     sd.BufferDesc.Height                  = g_ScreenHeight;
     sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision
@@ -336,19 +332,20 @@ HRESULT InitDX11Device()
     if (FAILED(hr))
         return hr;
 
+    // DX11 reports that if we are using Flip_Sequential, that we must ResizeBuffers too.
+    // Setting everything to hard coded 2560x1440 for simplified testing.
     hr = g_pSwapChain->ResizeBuffers(2, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
     if (FAILED(hr))
         return hr;
 
     // Create a render target view from the backbuffer
-    //
-    // Since this is derived from the backbuffer, it will also be 2x in width.
+    // There are now two of these, each the same size as backbuffer.
     ID3D11Texture2D* pBackBuffer = nullptr;
     hr                           = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
     if (FAILED(hr))
         return hr;
-    hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[0]);
-    hr |= g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[1]);
+    hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[L]);
+    hr |= g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[R]);
     pBackBuffer->Release();
     if (FAILED(hr))
         return hr;
@@ -357,7 +354,7 @@ HRESULT InitDX11Device()
 
     D3D11_TEXTURE2D_DESC descDepth;
     ZeroMemory(&descDepth, sizeof(descDepth));
-    descDepth.Width              = g_ScreenWidth;  // *2;		// Direct stereo needs 2x size
+    descDepth.Width              = g_ScreenWidth;
     descDepth.Height             = g_ScreenHeight;
     descDepth.MipLevels          = 1;
     descDepth.ArraySize          = 1;
@@ -368,8 +365,8 @@ HRESULT InitDX11Device()
     descDepth.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
     descDepth.CPUAccessFlags     = 0;
     descDepth.MiscFlags          = 0;
-    hr                           = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[0]);
-    hr |= g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[1]);
+    hr                           = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[L]);
+    hr |= g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[R]);
     if (FAILED(hr))
         return hr;
 
@@ -386,10 +383,10 @@ HRESULT InitDX11Device()
     if (FAILED(hr))
         return hr;
 
-    // This viewport is 2x the screen width.  The documentation directly contradicts
-    // this usage and suggests per-eye specific ViewPorts, but this works correctly.  Err.
+    // This viewport is the screen width. Previous experiments were 2x width, but since
+    // we are doing each eye buffers, we need single width.
     D3D11_VIEWPORT vp;
-    vp.Width    = (FLOAT)g_ScreenWidth;  // *2;		// Direct stereo needs the viewport 2x as well
+    vp.Width    = (FLOAT)g_ScreenWidth;
     vp.Height   = (FLOAT)g_ScreenHeight;
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
@@ -480,7 +477,7 @@ HRESULT InitDX11Device()
             {XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
             {XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
             {XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)},
+            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}
         };
 
     D3D11_BUFFER_DESC bd;
@@ -538,7 +535,8 @@ HRESULT InitDX11Device()
     // Set primitive topology
     g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // Create the constant buffer
+    // Create the constant buffer. This is used to update the resource on the
+    // GPU so that the cube will animate.
     bd.Usage          = D3D11_USAGE_DEFAULT;
     bd.ByteWidth      = sizeof(SharedCB);
     bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
@@ -615,18 +613,18 @@ void CleanupDevice()
         g_pVertexShader->Release();
     if (g_pPixelShader)
         g_pPixelShader->Release();
-    if (g_pDepthStencil[0])
-        g_pDepthStencil[0]->Release();
-    if (g_pDepthStencilView[0])
-        g_pDepthStencilView[0]->Release();
-    if (g_pRenderTargetView[0])
-        g_pRenderTargetView[0]->Release();
-    if (g_pDepthStencil[1])
-        g_pDepthStencil[1]->Release();
-    if (g_pDepthStencilView[1])
-        g_pDepthStencilView[1]->Release();
-    if (g_pRenderTargetView[1])
-        g_pRenderTargetView[1]->Release();
+    if (g_pDepthStencil[L])
+        g_pDepthStencil[L]->Release();
+    if (g_pDepthStencilView[L])
+        g_pDepthStencilView[L]->Release();
+    if (g_pRenderTargetView[L])
+        g_pRenderTargetView[L]->Release();
+    if (g_pDepthStencil[R])
+        g_pDepthStencil[R]->Release();
+    if (g_pDepthStencilView[R])
+        g_pDepthStencilView[R]->Release();
+    if (g_pRenderTargetView[R])
+        g_pRenderTargetView[R]->Release();
 
     if (g_pSwapChain)
         g_pSwapChain->Release();
@@ -674,28 +672,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 //--------------------------------------------------------------------------------------
-// Render current image, eye independent.
+// Render current image, use eye specific RenderTargetView.
 //--------------------------------------------------------------------------------------
-void Render(Eye eye)
+void Render(int eye)
 {
-    int eye_ = (eye == Eye::L) ? 0 : 1;
-
     //
     // Clear the back buffer
     //
     // Even though this uses the g_pRenderTargetView, it only affects half the backbuffer,
     // because we have set a specific eye.
     //
-    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[eye_], Colors::MidnightBlue);
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[eye], Colors::MidnightBlue);
 
     //
     // Clear the depth buffer to 1.0 (max depth)
     //
     // Also done on a per-eye basis.
     //
-    g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView[eye_], D3D11_CLEAR_DEPTH, 1.0f, 0);
+    g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView[eye], D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView[eye_], g_pDepthStencilView[eye_]);
+    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView[eye], g_pDepthStencilView[eye]);
 
     //
     // Render the cube
@@ -757,7 +753,7 @@ void RenderFrame()
         cb.mProjection = XMMatrixTranspose(g_Projection);
         g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-        Render(Eye::L);
+        Render(L);
     }
 
     status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
@@ -770,7 +766,7 @@ void RenderFrame()
         cb.mProjection = XMMatrixTranspose(g_Projection);
         g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-        Render(Eye::R);
+        Render(R);
     }
 
     //
