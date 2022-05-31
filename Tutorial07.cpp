@@ -658,6 +658,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PostQuitMessage(0);
             break;
 
+        case WM_KEYDOWN:
+            if (wParam == VK_ESCAPE)
+                PostQuitMessage(0);
+            break;
+
             // Note that this tutorial does not handle resizing (WM_SIZE) requests,
             // so we created the window without the resize border.
 
