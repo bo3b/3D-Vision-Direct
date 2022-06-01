@@ -104,8 +104,8 @@ StereoHandle            g_StereoHandle;
 UINT                    g_ScreenWidth  = 2560;
 UINT                    g_ScreenHeight = 1440;
 
-IDirect3D9*             g_d3d9;
-IDirect3DDevice9*       g_device9;
+IDirect3D9Ex*           g_d3d9Ex;
+IDirect3DDevice9Ex*     g_device9Ex;
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
@@ -199,11 +199,11 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
     // Create window
     g_hInst = hInstance;
     RECT rc = {0, 0, (LONG)g_ScreenWidth, (LONG)g_ScreenHeight};
-    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
-                          WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                          CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance,
-                          nullptr);
+    AdjustWindowRect(&rc, WS_BORDER, FALSE);
+    g_hWnd = CreateWindowEx(WS_EX_CLIENTEDGE, L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
+                            WS_BORDER,
+                            CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance,
+                            nullptr);
     if (!g_hWnd)
         return E_FAIL;
 
@@ -249,7 +249,7 @@ HRESULT ActivateStereo()
 {
     NvAPI_Status status;
 
-    status = NvAPI_Stereo_CreateHandleFromIUnknown(g_device9, &g_StereoHandle);
+    status = NvAPI_Stereo_CreateHandleFromIUnknown(g_device9Ex, &g_StereoHandle);
     if (FAILED(status))
         return status;
 
@@ -567,11 +567,21 @@ HRESULT InitDX11Device()
 // Setup a DX9 output device, that will be done via Direct Mode.
 // SetDriverMode(DirectMode) must already be done.
 
+// Some notes:
+//  It would be interesting to use the D3DSWAPEFFECT_FLIPEX SwapEffect, as that can then
+//  allow for D3DPRESENT_FORCEIMMEDIATE to be used at the DX9->Present call.  That would
+//  in theory preempt a pending DX11 frame, and show only the DX9 stereo output. However-
+//  this fails with an Access_Denied error.  It is apparently not legal to have more than
+//  one device using this SwapEffect mode for a given window.  It fails whether DX9 is init
+//  first or last.  It fails if I do two dx9 in a row.
+
 HRESULT InitDX9Device()
 {
     HRESULT hr;
 
-    g_d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
+    hr = Direct3DCreate9Ex(D3D_SDK_VERSION, &g_d3d9Ex);
+    if (FAILED(hr))
+        return hr;
 
     D3DPRESENT_PARAMETERS d3dpp;
 
@@ -589,7 +599,7 @@ HRESULT InitDX9Device()
 
     // create the DX9 device we can use for Direct Mode output
 
-    hr                         = g_d3d9->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &g_device9);
+    hr                         = g_d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, nullptr, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, nullptr, &g_device9Ex);
     if (FAILED(hr))
         return hr;
 
@@ -777,32 +787,31 @@ void RenderFrame()
 
         Render(R);
     }
-
     //
     // Present our back buffer to our front buffer
     //
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
+    hr = g_pSwapChain->Present(4, DXGI_PRESENT_DO_NOT_WAIT);
     if (FAILED(hr))
         return;
 
-    hr = g_device9->BeginScene();
+    hr = g_device9Ex->BeginScene();
     if (FAILED(hr))
         return;
     {
         NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-        g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.5, 0.5, 0, 1), 0, 0);
+        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.5, 0.5, 0, 1), 0, 0);
         status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-        g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(1, 0.5, 0.5, 1), 0, 0);  // salmon
+        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(1, 0.5, 0.5, 1), 0, 0);  // salmon
     }
-    hr = g_device9->EndScene();
+    hr = g_device9Ex->EndScene();
     if (FAILED(hr))
         return;
 
     // Now Present via the DX9 device as well. This will be the one actually showing.
-    hr = g_device9->Present(nullptr, nullptr, g_hWnd, nullptr);
+    hr = g_device9Ex->PresentEx(nullptr, nullptr, g_hWnd, nullptr, D3DPRESENT_INTERVAL_IMMEDIATE);
     if (FAILED(hr))
         return;
 }
