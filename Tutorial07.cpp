@@ -131,14 +131,16 @@ int WINAPI              wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hP
     if (FAILED(InitWindow(hInstance, nCmdShow)))
         return 0;
 
-    if (FAILED(InitStereo()))
-        return 0;
-
+    // Setup DX11 before nvidia stereo api is called, so it is a regular environment,
+    // which would match a game being hacked.
     if (FAILED(InitDX11Device()))
     {
         CleanupDevice();
         return 0;
     }
+
+    if (FAILED(InitStereo()))
+        return 0;
 
     if (FAILED(InitDX9Device()))
     {
@@ -247,7 +249,7 @@ HRESULT ActivateStereo()
 {
     NvAPI_Status status;
 
-    status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
+    status = NvAPI_Stereo_CreateHandleFromIUnknown(g_device9, &g_StereoHandle);
     if (FAILED(status))
         return status;
 
@@ -750,41 +752,31 @@ void RenderFrame()
     // sequence works to handle both convergence and separation hot keys properly.
     //
 
-    g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(1, 1, 0, 1), 0, 0);
-
-    hr = g_device9->BeginScene();
-    if (FAILED(hr))
-        return;
+    //NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+    //if (SUCCEEDED(status))
     {
-        //NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-        //if (SUCCEEDED(status))
-        {
-            g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
+        g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
 
-            cb.mWorld      = XMMatrixTranspose(g_World);
-            cb.mView       = XMMatrixTranspose(g_View);
-            cb.mProjection = XMMatrixTranspose(g_Projection);
-            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+        cb.mWorld      = XMMatrixTranspose(g_World);
+        cb.mView       = XMMatrixTranspose(g_View);
+        cb.mProjection = XMMatrixTranspose(g_Projection);
+        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-            Render(L);
-        }
-
-        //status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-        //if (SUCCEEDED(status))
-        {
-            g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
-
-            cb.mWorld      = XMMatrixTranspose(g_World);
-            cb.mView       = XMMatrixTranspose(g_View);
-            cb.mProjection = XMMatrixTranspose(g_Projection);
-            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-            Render(R);
-        }
+        Render(L);
     }
-    hr = g_device9->EndScene();
-    if (FAILED(hr))
-        return;
+
+    //status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
+    //if (SUCCEEDED(status))
+    {
+        g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
+
+        cb.mWorld      = XMMatrixTranspose(g_World);
+        cb.mView       = XMMatrixTranspose(g_View);
+        cb.mProjection = XMMatrixTranspose(g_Projection);
+        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+        Render(R);
+    }
 
     //
     // Present our back buffer to our front buffer
@@ -792,7 +784,20 @@ void RenderFrame()
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(0, 0);
+    hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
+    if (FAILED(hr))
+        return;
+
+    hr = g_device9->BeginScene();
+    if (FAILED(hr))
+        return;
+    {
+        NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
+        g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.5, 0.5, 0, 1), 0, 0);
+        status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
+        g_device9->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(1, 0.5, 0.5, 1), 0, 0);  // salmon
+    }
+    hr = g_device9->EndScene();
     if (FAILED(hr))
         return;
 
