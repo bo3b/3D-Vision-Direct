@@ -320,6 +320,9 @@ HRESULT InitDX11Device()
         DWORD err = GetLastError();
         return E_FAIL;
     }
+    bool shown = IsWindowVisible(g_child_hWnd);
+    shown      = IsWindowVisible(g_hWnd);
+    //shown      = ShowWindow(g_child_hWnd, SW_SHOWNA);  //If shown, DX11 present takes over.
 
     UINT createDeviceFlags = 0;
 #ifdef _DEBUG
@@ -590,6 +593,28 @@ HRESULT InitDX11Device()
 //  We must use d3d9Ex in order to allow for surface sharing, so the Device is Device9Ex.
 //  The Device9Ex is created with the primary window as the output, so that the swap chain
 //  used will be the main output, not the child window for dx11.
+//
+//  Creating a child window of the primary window seems to work as desired.  The swapchain
+//  for the DX11 device is targeting the child window, which is created right before DX11
+//  init, and is set to not-visible.  Then, DX9 setup is done, which targets the primary
+//  window as the swapchain output, and this then shutters properly, showing L/R colors
+//  that are different for each eye, as set via the SetActiveEye.  Next step would be to
+//  share surface the DX11 output to the DX9 side, but I think it's not worth the effort,
+//  as it's clearly working.  Whenever DX11 was primary output, even accidentally, it would
+//  show spinning cube on blue background, and nothing showing for DX9 colors.
+//  This will also keep games working, because the child window is invisible to all other
+//  callers, and so any events should still go to the game-owned main window.
+//  If the child window is set to Shown, then the DX11 present takes over and blocks the
+//  DX9 present, even as 3D Vision is actively shuttering.
+//
+//  With different Present flags, the frame might be busy, and then the BeginScene would
+//  fail with a busy-GPU error.  So the output from the DX11 needs to be buffered, so that
+//  the DX9 side can preempt it.  We don't want to change any flip mode behavior for games,
+//  so this should work.
+//
+//  This also works in windowed mode, which should be quite a lot better for future games
+//  and drivers, because Windows is moving away from exclusive full screen in all cases.
+//  This should work correctly in a borderless full screen mode.
 
 HRESULT InitDX9Device()
 {
@@ -807,7 +832,7 @@ void RenderFrame()
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(1, DXGI_PRESENT_DO_NOT_SEQUENCE);
+    hr = g_pSwapChain->Present(1, 0);
     ThrowIfFailed(hr);
 
     hr = g_device9Ex->BeginScene();
@@ -822,6 +847,6 @@ void RenderFrame()
     ThrowIfFailed(hr);
 
     // Now Present via the DX9 device as well. This will be the one actually showing.
-    hr = g_device9Ex->PresentEx(nullptr, nullptr, g_hWnd, nullptr, D3DPRESENT_INTERVAL_IMMEDIATE);
+    hr = g_device9Ex->PresentEx(nullptr, nullptr, g_hWnd, nullptr, D3DPRESENT_INTERVAL_DEFAULT);
     ThrowIfFailed(hr);
 }
