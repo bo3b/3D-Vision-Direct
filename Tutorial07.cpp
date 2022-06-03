@@ -73,12 +73,12 @@ struct SharedCB
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-HINSTANCE               g_hInst                = nullptr;
-HWND                    g_hWnd                 = nullptr;
+HINSTANCE g_hInst = nullptr;
+HWND      g_hWnd  = nullptr;
 
-ID3D11Device*           g_pd3dDevice           = nullptr;
-ID3D11DeviceContext*    g_pImmediateContext    = nullptr;
-IDXGISwapChain*         g_pSwapChain           = nullptr;
+ID3D11Device*        g_pd3dDevice        = nullptr;
+ID3D11DeviceContext* g_pImmediateContext = nullptr;
+IDXGISwapChain*      g_pSwapChain        = nullptr;
 
 // One for each eye
 
@@ -88,42 +88,42 @@ ID3D11RenderTargetView* g_pRenderTargetView[2] = {};
 ID3D11Texture2D*        g_pDepthStencil[2]     = {};
 ID3D11DepthStencilView* g_pDepthStencilView[2] = {};
 
-ID3D11VertexShader*     g_pVertexShader        = nullptr;
-ID3D11PixelShader*      g_pPixelShader         = nullptr;
-ID3D11InputLayout*      g_pVertexLayout        = nullptr;
-ID3D11Buffer*           g_pVertexBuffer        = nullptr;
-ID3D11Buffer*           g_pIndexBuffer         = nullptr;
+ID3D11VertexShader* g_pVertexShader = nullptr;
+ID3D11PixelShader*  g_pPixelShader  = nullptr;
+ID3D11InputLayout*  g_pVertexLayout = nullptr;
+ID3D11Buffer*       g_pVertexBuffer = nullptr;
+ID3D11Buffer*       g_pIndexBuffer  = nullptr;
 
-ID3D11Buffer*           g_pSharedCB            = nullptr;
+ID3D11Buffer* g_pSharedCB = nullptr;
 
-XMMATRIX                g_World;
-XMMATRIX                g_View;
-XMMATRIX                g_Projection;
+XMMATRIX g_World;
+XMMATRIX g_View;
+XMMATRIX g_Projection;
 
-StereoHandle            g_StereoHandle;
-UINT                    g_ScreenWidth  = 2560;
-UINT                    g_ScreenHeight = 1440;
+StereoHandle g_StereoHandle;
+UINT         g_ScreenWidth  = 2560;
+UINT         g_ScreenHeight = 1440;
 
-IDirect3D9Ex*           g_d3d9Ex;
-IDirect3DDevice9Ex*     g_device9Ex;
+IDirect3D9Ex*       g_d3d9Ex;
+IDirect3DDevice9Ex* g_device9Ex;
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
 //--------------------------------------------------------------------------------------
-HRESULT                 InitWindow(HINSTANCE hInstance, int nCmdShow);
-HRESULT                 InitStereo();
-HRESULT                 InitDX11Device();
-HRESULT                 InitDX9Device();
-HRESULT                 ActivateStereo();
-void                    CleanupDevice();
-LRESULT CALLBACK        WndProc(HWND, UINT, WPARAM, LPARAM);
-void                    RenderFrame();
+HRESULT          InitWindow(HINSTANCE hInstance, int nCmdShow);
+HRESULT          InitStereo();
+HRESULT          InitDX11Device();
+HRESULT          InitDX9Device();
+HRESULT          ActivateStereo();
+void             CleanupDevice();
+LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+void             RenderFrame();
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.
 //--------------------------------------------------------------------------------------
-int WINAPI              wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
+int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
@@ -198,12 +198,9 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
     // Create window
     g_hInst = hInstance;
-    RECT rc = {0, 0, (LONG)g_ScreenWidth, (LONG)g_ScreenHeight};
+    RECT rc = { 0, 0, (LONG)g_ScreenWidth, (LONG)g_ScreenHeight };
     AdjustWindowRect(&rc, WS_BORDER, FALSE);
-    g_hWnd = CreateWindowEx(WS_EX_CLIENTEDGE, L"TutorialWindowClass", L"Direct3D 11 Tutorial 7",
-                            WS_BORDER,
-                            CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance,
-                            nullptr);
+    g_hWnd = CreateWindowEx(WS_EX_CLIENTEDGE, L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_BORDER, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd)
         return E_FAIL;
 
@@ -263,9 +260,9 @@ HRESULT ActivateStereo()
 //--------------------------------------------------------------------------------------
 HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szShaderModel, ID3DBlob** ppBlobOut)
 {
-    HRESULT hr            = S_OK;
+    HRESULT hr = S_OK;
 
-    DWORD   dwShaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
+    DWORD dwShaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
 #ifdef _DEBUG
     // Set the D3DCOMPILE_DEBUG flag to embed debug information in the shaders.
     // Setting this flag improves the shader debugging experience, but still allows
@@ -278,8 +275,7 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
 #endif
 
     ID3DBlob* pErrorBlob = nullptr;
-    hr                   = D3DCompileFromFile(szFileName, nullptr, nullptr, szEntryPoint, szShaderModel,
-                            dwShaderFlags, 0, ppBlobOut, &pErrorBlob);
+    hr                   = D3DCompileFromFile(szFileName, nullptr, nullptr, szEntryPoint, szShaderModel, dwShaderFlags, 0, ppBlobOut, &pErrorBlob);
     if (FAILED(hr))
     {
         if (pErrorBlob)
@@ -300,9 +296,9 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
 //--------------------------------------------------------------------------------------
 HRESULT InitDX11Device()
 {
-    HRESULT hr                = S_OK;
+    HRESULT hr = S_OK;
 
-    UINT    createDeviceFlags = 0;
+    UINT createDeviceFlags = 0;
 #ifdef _DEBUG
     createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
@@ -323,8 +319,7 @@ HRESULT InitDX11Device()
     sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    hr                                    = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0,
-                                       D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
+    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
     if (FAILED(hr))
         return hr;
 
@@ -401,8 +396,7 @@ HRESULT InitDX11Device()
     hr                = CompileShaderFromFile(L"Tutorial07.fx", "VS", "vs_4_0", &pVSBlob);
     if (FAILED(hr))
     {
-        MessageBox(nullptr,
-                   L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
+        MessageBox(nullptr, L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
         return hr;
     }
 
@@ -415,16 +409,14 @@ HRESULT InitDX11Device()
     }
 
     // Define the input layout
-    D3D11_INPUT_ELEMENT_DESC layout[] =
-        {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        };
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
     UINT numElements = ARRAYSIZE(layout);
 
     // Create the input layout
-    hr               = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(),
-                                         pVSBlob->GetBufferSize(), &g_pVertexLayout);
+    hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), &g_pVertexLayout);
     pVSBlob->Release();
     if (FAILED(hr))
         return hr;
@@ -437,8 +429,7 @@ HRESULT InitDX11Device()
     hr                = CompileShaderFromFile(L"Tutorial07.fx", "PS", "ps_4_0", &pPSBlob);
     if (FAILED(hr))
     {
-        MessageBox(nullptr,
-                   L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
+        MessageBox(nullptr, L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
         return hr;
     }
 
@@ -449,37 +440,37 @@ HRESULT InitDX11Device()
         return hr;
 
     // Create vertex buffer for the cube
-    SimpleVertex vertices[] =
-        {
-            {XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
-            {XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
+    SimpleVertex vertices[] = {
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
 
-            {XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
-            {XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
-            {XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
 
-            {XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
-            {XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
 
-            {XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
-            {XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
-            {XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)},
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
 
-            {XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
-            {XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
-            {XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
 
-            {XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
-            {XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
-            {XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-            {XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}};
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) }
+    };
 
     D3D11_BUFFER_DESC bd;
     ZeroMemory(&bd, sizeof(bd));
@@ -501,25 +492,25 @@ HRESULT InitDX11Device()
 
     // Create index buffer
     // Create vertex buffer
-    WORD indices[] =
-        {
-            3, 1, 0,
-            2, 1, 3,
+    WORD indices[] = {
+        3, 1, 0,
+        2, 1, 3,
 
-            6, 4, 5,
-            7, 4, 6,
+        6, 4, 5,
+        7, 4, 6,
 
-            11, 9, 8,
-            10, 9, 11,
+        11, 9, 8,
+        10, 9, 11,
 
-            14, 12, 13,
-            15, 12, 14,
+        14, 12, 13,
+        15, 12, 14,
 
-            19, 17, 16,
-            18, 17, 19,
+        19, 17, 16,
+        18, 17, 19,
 
-            22, 20, 21,
-            23, 20, 22};
+        22, 20, 21,
+        23, 20, 22
+    };
 
     bd.Usage          = D3D11_USAGE_DEFAULT;
     bd.ByteWidth      = sizeof(WORD) * 36;
@@ -547,7 +538,7 @@ HRESULT InitDX11Device()
         return hr;
 
     // Initialize the world matrix
-    g_World      = XMMatrixIdentity();
+    g_World = XMMatrixIdentity();
 
     // Initialize the view matrix
     XMVECTOR Eye = XMVectorSet(0.0f, 3.0f, -6.0f, 0.0f);
@@ -586,20 +577,20 @@ HRESULT InitDX9Device()
     D3DPRESENT_PARAMETERS d3dpp;
 
     ZeroMemory(&d3dpp, sizeof(d3dpp));
-    d3dpp.BackBufferWidth      = g_ScreenWidth;
-    d3dpp.BackBufferHeight     = g_ScreenHeight;
-    d3dpp.BackBufferFormat     = D3DFMT_UNKNOWN;
-    d3dpp.BackBufferCount      = 1;
-    d3dpp.SwapEffect           = D3DSWAPEFFECT_FLIP;
-    d3dpp.hDeviceWindow        = g_hWnd;
-    d3dpp.Windowed             = TRUE;
+    d3dpp.BackBufferWidth  = g_ScreenWidth;
+    d3dpp.BackBufferHeight = g_ScreenHeight;
+    d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
+    d3dpp.BackBufferCount  = 1;
+    d3dpp.SwapEffect       = D3DSWAPEFFECT_FLIP;
+    d3dpp.hDeviceWindow    = g_hWnd;
+    d3dpp.Windowed         = TRUE;
     //d3dpp.EnableAutoDepthStencil = TRUE;
     //d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
     d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 
     // create the DX9 device we can use for Direct Mode output
 
-    hr                         = g_d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, nullptr, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, nullptr, &g_device9Ex);
+    hr = g_d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, nullptr, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, nullptr, &g_device9Ex);
     if (FAILED(hr))
         return hr;
 
