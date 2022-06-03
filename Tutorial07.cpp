@@ -53,7 +53,6 @@
 #include "nvapi_lite_stereo.h"
 
 #include <exception>
-
 using namespace DirectX;
 
 //--------------------------------------------------------------------------------------
@@ -75,8 +74,9 @@ struct SharedCB
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-HINSTANCE g_hInst = nullptr;
-HWND      g_hWnd  = nullptr;
+HINSTANCE g_hInst      = NULL;
+HWND      g_hWnd       = NULL;
+HWND      g_child_hWnd = NULL;
 
 ID3D11Device*        g_pd3dDevice        = nullptr;
 ID3D11DeviceContext* g_pImmediateContext = nullptr;
@@ -313,6 +313,14 @@ HRESULT InitDX11Device()
 {
     HRESULT hr = S_OK;
 
+    // Create a child window for the dx11 output to be invisible.
+    g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, WS_CHILD, 0, 0, g_ScreenWidth, g_ScreenHeight, g_hWnd, nullptr, nullptr, nullptr);
+    if (!g_child_hWnd)
+    {
+        DWORD err = GetLastError();
+        return E_FAIL;
+    }
+
     UINT createDeviceFlags = 0;
 #ifdef _DEBUG
     createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -320,18 +328,19 @@ HRESULT InitDX11Device()
 
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.BufferCount                        = 2;
     sd.BufferDesc.Width                   = g_ScreenWidth;
     sd.BufferDesc.Height                  = g_ScreenHeight;
-    sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision
     sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow                       = g_hWnd;
+    sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.SampleDesc.Count                   = 1;
     sd.SampleDesc.Quality                 = 0;
+    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.BufferCount                        = 2;
+    sd.OutputWindow                       = g_child_hWnd;
     sd.Windowed                           = TRUE;
     sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    sd.Flags                              = 0;
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
@@ -577,6 +586,10 @@ HRESULT InitDX11Device()
 //  this fails with an Access_Denied error.  It is apparently not legal to have more than
 //  one device using this SwapEffect mode for a given window.  It fails whether DX9 is init
 //  first or last.  It fails if I do two dx9 in a row.
+//
+//  We must use d3d9Ex in order to allow for surface sharing, so the Device is Device9Ex.
+//  The Device9Ex is created with the primary window as the output, so that the swap chain
+//  used will be the main output, not the child window for dx11.
 
 HRESULT InitDX9Device()
 {
@@ -801,9 +814,9 @@ void RenderFrame()
     ThrowIfFailed(hr);
     {
         NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.5, 0.5, 0, 1), 0, 0);
+        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.7, 0, 0, 1), 0, 0);  // Red
         status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(1, 0.5, 0.5, 1), 0, 0);  // salmon
+        g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0, 0, 0.7, 1), 0, 0);  // Blue
     }
     hr = g_device9Ex->EndScene();
     ThrowIfFailed(hr);
