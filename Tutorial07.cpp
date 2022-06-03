@@ -52,6 +52,8 @@
 #include "nvapi.h"
 #include "nvapi_lite_stereo.h"
 
+#include <exception>
+
 using namespace DirectX;
 
 //--------------------------------------------------------------------------------------
@@ -118,6 +120,19 @@ HRESULT          ActivateStereo();
 void             CleanupDevice();
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 void             RenderFrame();
+
+//--------------------------------------------------------------------------------------
+// Helper function to cleanup all those FAILED checks we don't care about.
+// Copied from the DirectXTK.
+//--------------------------------------------------------------------------------------
+inline void ThrowIfFailed(HRESULT hr)
+{
+    if (FAILED(hr))
+    {
+        // Set a breakpoint on this line to catch DirectX API errors
+        throw std::exception();
+    }
+}
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
@@ -320,32 +335,30 @@ HRESULT InitDX11Device()
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
     // Vision will not activate.
     //hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
-    //if (FAILED(hr))
+    //    ThrowIfFailed(hr);
     //    return hr;
 
     // DX11 reports that if we are using Flip_Sequential, that we must ResizeBuffers too.
     // Setting everything to hard coded 2560x1440 for simplified testing.
     //hr = g_pSwapChain->ResizeBuffers(2, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
-    //if (FAILED(hr))
+    //    ThrowIfFailed(hr);
     //    return hr;
 
     // Create a render target view from the backbuffer
     // There are now two of these, each the same size as backbuffer.
     ID3D11Texture2D* pBackBuffer = nullptr;
     hr                           = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
+
     hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[L]);
     hr |= g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView[R]);
     pBackBuffer->Release();
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Create depth stencil texture
 
@@ -364,8 +377,7 @@ HRESULT InitDX11Device()
     descDepth.MiscFlags          = 0;
     hr                           = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[L]);
     hr |= g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil[R]);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Create the depth stencil view
     //
@@ -377,8 +389,7 @@ HRESULT InitDX11Device()
     descDSV.Texture2D.MipSlice = 0;
     hr                         = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil[0], &descDSV, &g_pDepthStencilView[0]);
     hr |= g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil[1], &descDSV, &g_pDepthStencilView[1]);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // This viewport is the screen width. Previous experiments were 2x width, but since
     // we are doing each eye buffers, we need single width.
@@ -418,8 +429,7 @@ HRESULT InitDX11Device()
     // Create the input layout
     hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), &g_pVertexLayout);
     pVSBlob->Release();
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Set the input layout
     g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
@@ -436,8 +446,7 @@ HRESULT InitDX11Device()
     // Create the pixel shader
     hr = g_pd3dDevice->CreatePixelShader(pPSBlob->GetBufferPointer(), pPSBlob->GetBufferSize(), nullptr, &g_pPixelShader);
     pPSBlob->Release();
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Create vertex buffer for the cube
     SimpleVertex vertices[] = {
@@ -482,8 +491,7 @@ HRESULT InitDX11Device()
     ZeroMemory(&InitData, sizeof(InitData));
     InitData.pSysMem = vertices;
     hr               = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Set vertex buffer
     UINT stride = sizeof(SimpleVertex);
@@ -518,8 +526,7 @@ HRESULT InitDX11Device()
     bd.CPUAccessFlags = 0;
     InitData.pSysMem  = indices;
     hr                = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Set index buffer
     g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
@@ -534,8 +541,7 @@ HRESULT InitDX11Device()
     bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     bd.CPUAccessFlags = 0;
     hr                = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     // Initialize the world matrix
     g_World = XMMatrixIdentity();
@@ -551,6 +557,12 @@ HRESULT InitDX11Device()
     // For the projection matrix, the shaders know nothing about being in stereo,
     // so this needs to be only ScreenWidth, one per eye.
     g_Projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, (float)g_ScreenWidth / (float)g_ScreenHeight, 0.01f, 100.0f);
+
+    // First present is sometimes needed for init.
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[L], Colors::LimeGreen);
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[R], Colors::LimeGreen);
+    hr = g_pSwapChain->Present(0, 0);
+    ThrowIfFailed(hr);
 
     return S_OK;
 }
@@ -571,8 +583,7 @@ HRESULT InitDX9Device()
     HRESULT hr;
 
     hr = Direct3DCreate9Ex(D3D_SDK_VERSION, &g_d3d9Ex);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     D3DPRESENT_PARAMETERS d3dpp;
 
@@ -591,8 +602,7 @@ HRESULT InitDX9Device()
     // create the DX9 device we can use for Direct Mode output
 
     hr = g_d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, nullptr, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, nullptr, &g_device9Ex);
-    if (FAILED(hr))
-        return hr;
+    ThrowIfFailed(hr);
 
     return S_OK;
 }
@@ -784,13 +794,11 @@ void RenderFrame()
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(4, DXGI_PRESENT_DO_NOT_WAIT);
-    if (FAILED(hr))
-        return;
+    hr = g_pSwapChain->Present(1, DXGI_PRESENT_DO_NOT_SEQUENCE);
+    ThrowIfFailed(hr);
 
     hr = g_device9Ex->BeginScene();
-    if (FAILED(hr))
-        return;
+    ThrowIfFailed(hr);
     {
         NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
         g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0.5, 0.5, 0, 1), 0, 0);
@@ -798,11 +806,9 @@ void RenderFrame()
         g_device9Ex->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(1, 0.5, 0.5, 1), 0, 0);  // salmon
     }
     hr = g_device9Ex->EndScene();
-    if (FAILED(hr))
-        return;
+    ThrowIfFailed(hr);
 
     // Now Present via the DX9 device as well. This will be the one actually showing.
     hr = g_device9Ex->PresentEx(nullptr, nullptr, g_hWnd, nullptr, D3DPRESENT_INTERVAL_IMMEDIATE);
-    if (FAILED(hr))
-        return;
+    ThrowIfFailed(hr);
 }
