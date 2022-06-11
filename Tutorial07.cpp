@@ -226,19 +226,23 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
     AdjustWindowRect(&rc, WS_BORDER, FALSE);
     g_hWnd = CreateWindowEx(WS_EX_CLIENTEDGE, L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_BORDER, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd)
-        return E_FAIL;
+    {
+        DWORD err = GetLastError();
+        return err;
+    }
 
     // Create a child window for the dx11 output to be invisible.
-    g_child_hWnd = CreateWindowEx(0, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, nullptr, nullptr);
+    g_child_hWnd = CreateWindowEx(0, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, nullptr, nullptr);
     if (!g_child_hWnd)
     {
         DWORD err = GetLastError();
-        return E_FAIL;
+        return err;
     }
+
     bool shown = IsWindowVisible(g_child_hWnd);
     shown      = IsWindowVisible(g_hWnd);
 
-//    shown      = ShowWindow(g_child_hWnd, SW_SHOWNA);  //If shown, DX11 present takes over.
+    //    shown      = ShowWindow(g_child_hWnd, SW_SHOWNA);  //If shown, DX11 present takes over.
     shown = ShowWindow(g_hWnd, nCmdShow);
 
     return S_OK;
@@ -307,10 +311,13 @@ void ToggleFullScreen()
     hr = g_device9Ex->ResetEx(&present, present.Windowed ? nullptr : &fullscreen);
     ThrowIfFailed(hr);
 
-    // ----------- D11
+    // ----------- DX11
 
-    BOOL win_state = g_pSwapChain->GetFullscreenState(&win_state, nullptr);
-    win_state      = !win_state;
+    BOOL win_state;
+    hr = g_pSwapChain->GetFullscreenState(&win_state, nullptr);
+    ThrowIfFailed(hr);
+
+    win_state = !win_state;
 
     // Now that main window is full screen, reset the DX11 swapchain too.
     hr = g_pSwapChain->SetFullscreenState(win_state, nullptr);
@@ -336,7 +343,7 @@ void ToggleFullScreen()
     //ThrowIfFailed(hr);
     //d3dDebug->Release();
 
-    hr = g_pSwapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+    hr = g_pSwapChain->ResizeBuffers(0, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
     ThrowIfFailed(hr);
 
     // Rebuild drawing environment for DX11.
@@ -483,7 +490,7 @@ HRESULT CreateDX11Device()
     sd.BufferCount                        = 2;  // Must be two or more
     sd.OutputWindow                       = g_child_hWnd;
     sd.Windowed                           = TRUE;  // Starts windowed, go fullscreen on alt-enter
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
     sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
     // Create the simple DX11, Device, SwapChain, and Context.
