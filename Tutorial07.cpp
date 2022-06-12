@@ -232,7 +232,7 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
     }
 
     // Create a child window for the dx11 output to be invisible.
-    g_child_hWnd = CreateWindowEx(0, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, nullptr, nullptr);
+    g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
     if (!g_child_hWnd)
     {
         DWORD err = GetLastError();
@@ -313,41 +313,46 @@ void ToggleFullScreen()
 
     // ----------- DX11
 
-    BOOL win_state;
-    hr = g_pSwapChain->GetFullscreenState(&win_state, nullptr);
-    ThrowIfFailed(hr);
-
-    win_state = !win_state;
-
-    // Now that main window is full screen, reset the DX11 swapchain too.
-    hr = g_pSwapChain->SetFullscreenState(win_state, nullptr);
-    ThrowIfFailed(hr);
-
-    // DX11 reports that if we are using Flip_Sequential, that we must ResizeBuffers too.
-    // Setting everything to hard coded 2560x1440 for simplified testing.
-
-    // Clearing context state releases all its buffers.
-    g_pImmediateContext->ClearState();
-    g_pImmediateContext->Flush();
-    g_pRenderTargetView[L]->Release();
-    g_pRenderTargetView[R]->Release();
-    g_pDepthStencilView[L]->Release();
-    g_pDepthStencilView[R]->Release();
-
-    //// Report on any leftovers.
-    //ID3D11Debug* d3dDebug = nullptr;
-    //hr                    = g_pd3dDevice->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
+    /*
+     * Don't do this sequence, because the dx11 swap chain does not need to
+     * be full screen, and can stay at it's regular size.  If this goes into
+     * full screen, it interferes with the primary window, becoming frontmost.
+     */ 
+    //BOOL win_state;
+    //hr = g_pSwapChain->GetFullscreenState(&win_state, nullptr);
     //ThrowIfFailed(hr);
 
-    //hr = d3dDebug->ReportLiveDeviceObjects(D3D11_RLDO_SUMMARY | D3D11_RLDO_DETAIL);
-    //ThrowIfFailed(hr);
-    //d3dDebug->Release();
+    //win_state = !win_state;
 
-    hr = g_pSwapChain->ResizeBuffers(0, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
-    ThrowIfFailed(hr);
+    //// Now that main window is full screen, reset the DX11 swapchain too.
+    //hr = g_pSwapChain->SetFullscreenState(win_state, nullptr);
+    //ThrowIfFailed(hr);
+
+    //// DX11 reports that if we are using Flip_Sequential, that we must ResizeBuffers too.
+    //// Setting everything to hard coded 2560x1440 for simplified testing.
+
+    //// Clearing context state releases all its buffers.
+    //g_pImmediateContext->ClearState();
+    //g_pImmediateContext->Flush();
+    //g_pRenderTargetView[L]->Release();
+    //g_pRenderTargetView[R]->Release();
+    //g_pDepthStencilView[L]->Release();
+    //g_pDepthStencilView[R]->Release();
+
+    ////// Report on any leftovers.
+    ////ID3D11Debug* d3dDebug = nullptr;
+    ////hr                    = g_pd3dDevice->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
+    ////ThrowIfFailed(hr);
+
+    ////hr = d3dDebug->ReportLiveDeviceObjects(D3D11_RLDO_SUMMARY | D3D11_RLDO_DETAIL);
+    ////ThrowIfFailed(hr);
+    ////d3dDebug->Release();
+
+    //hr = g_pSwapChain->ResizeBuffers(0, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+    //ThrowIfFailed(hr);
 
     // Rebuild drawing environment for DX11.
-    InitDX11Device();
+    //InitDX11Device();
 }
 
 //--------------------------------------------------------------------------------------
@@ -488,10 +493,12 @@ HRESULT CreateDX11Device()
     sd.SampleDesc.Quality                 = 0;
     sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount                        = 2;  // Must be two or more
-    sd.OutputWindow                       = g_child_hWnd;
+
     sd.Windowed                           = TRUE;  // Starts windowed, go fullscreen on alt-enter
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
+    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+
+    sd.OutputWindow                       = g_child_hWnd;
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
@@ -944,7 +951,7 @@ void RenderFrame()
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(0, 0);
+    hr = g_pSwapChain->Present(1, 0);
     ThrowIfFailed(hr);
 
     hr = g_device9Ex->BeginScene();
