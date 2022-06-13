@@ -92,14 +92,21 @@ using namespace DirectX;
 // does not crash, but 3D does not engage.  This works without a profile for
 // the test app, and nvidia default overlay comes up. So FLIPEX disables the
 // stereo profile bit handling.  Using known good GoogleEarth profile, we
-// do not get 3D in windowed mode using FLIPEX.
+// do not get 3D in windowed mode using FLIPEX.  A quote from 3DFM notes:
+// "New: For drivers beyond 452.06 stereo 3D screenshots are forced into
+// fullscreen mode as windowed mode no longer works for these drivers."
+// Since the goal of this is support on latest drivers, that means fullscreen
+// only should be the target and thus FLIPEX is default.
+// dx11 present before or after dx9 present works. dx11 Present first is
+// slightly better, because overlays will then draw and be sent stereo.
+
 
 D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_FLIPEX;
 DXGI_SWAP_EFFECT dx11_swap_mode     = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
 UINT             dx11_sync_interval = 1;
 UINT             dx11_flags         = 0;
 DWORD            dx9_flags          = D3DPRESENT_INTERVAL_ONE;
-bool             dx11_present_first = false;
+bool             dx11_present_first = true;
 bool             dx11_window        = true;
 bool             dx11_make_child    = true;
 bool             dx11_skip          = false;
