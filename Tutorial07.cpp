@@ -71,13 +71,38 @@ using namespace DirectX;
 // when fullscreen.
 // There does not seem to be any combination for parameters that will allow the
 // DX9 present to take precedence over the dx11 one, when both are in the same
-// window.
+// window. Even setting the dx11_sync_interval to 4, and dx9_flags to IMMEDIDATE
+// did not allow dx9 to be seen.
+// 2) Setting the DX11 to use a different window works.
+// This immediately works for windowed mode, because the extra window for the
+// dx11 side is invisible to start, and left invisible.  So the dx11 Present
+// doesn't draw anything.
+// This works in both windowed and fullscreen, even when the DX11 side is not
+// resized.  DX9 side is done via ResetEx.  The dx11 side not being resized
+// still works because the window it targets is not frontmost.
+// Making a WS_CHILD window is probably more compatible, because then it
+// cannot interfere with making the main window frontmost.  Here during testing
+// both window types work the same and have no negative effects.
+// 3) FLIPEX mode for DX9 works, but only in fullscreen mode.
+// No errors reported as long as the dx11 is windowed, so dx9 FLIPEX and
+// dx11 FLIP_DISCARD is successful in fullscreen.  It's worth noting that for
+// whatever reason that even while it is shuttering for other modes, the only
+// mode we see the nvidia overlay is in FLIPEX for dx9.  When dx11 goes to
+// same window, it fails with Access_Denied.  If dx11 is DISCARD instead, it
+// does not crash, but 3D does not engage.  This works without a profile for
+// the test app, and nvidia default overlay comes up. So FLIPEX disables the
+// stereo profile bit handling.  Using known good GoogleEarth profile, we
+// do not get 3D in windowed mode using FLIPEX.
 
-D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_FLIP;
-DXGI_SWAP_EFFECT dx11_swap_mode     = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_FLIPEX;
+DXGI_SWAP_EFFECT dx11_swap_mode     = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
 UINT             dx11_sync_interval = 1;
 UINT             dx11_flags         = 0;
-DWORD            dx9_flags          = D3DPRESENT_INTERVAL_DEFAULT;
+DWORD            dx9_flags          = D3DPRESENT_INTERVAL_ONE;
+bool             dx11_present_first = false;
+bool             dx11_window        = true;
+bool             dx11_make_child    = true;
+bool             dx11_skip          = false;
 
 // Some notes:
 //  It would be interesting to use the D3DSWAPEFFECT_FLIPEX SwapEffect, as that can then
@@ -293,21 +318,29 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
         return err;
     }
 
-    g_child_hWnd = g_hWnd;
+    DWORD window_type = WS_OVERLAPPED;
+    if (dx11_make_child)
+        window_type = WS_CHILD;
 
-    //// Create a child window for the dx11 output to be invisible.
-    //g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
-    //if (!g_child_hWnd)
-    //{
-    //    DWORD err = GetLastError();
-    //    return err;
-    //}
+    // Create a child window for the dx11 output to be invisible.
+    {
+        // Create a child window for the dx11 output to be invisible.
+        g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, window_type, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
+    }
+    if (!g_child_hWnd)
+    {
+        DWORD err = GetLastError();
+        return err;
+    }
 
     bool shown = IsWindowVisible(g_child_hWnd);
     shown      = IsWindowVisible(g_hWnd);
 
     //    shown      = ShowWindow(g_child_hWnd, SW_SHOWNA);  //If shown, DX11 present takes over.
     shown = ShowWindow(g_hWnd, nCmdShow);
+
+    if (!dx11_window)
+        g_child_hWnd = g_hWnd;
 
     return S_OK;
 }
@@ -478,6 +511,9 @@ HRESULT InitDX11Device()
 {
     HRESULT hr;
 
+    if (dx11_skip)
+        return S_OK;
+
     // Create a render target view from the backbuffer
     // There are now two of these, each the same size as backbuffer.
     ID3D11Texture2D* pBackBuffer = nullptr;
@@ -540,6 +576,9 @@ HRESULT InitDX11Device()
 HRESULT CreateDX11Device()
 {
     HRESULT hr = S_OK;
+
+    if (dx11_skip)
+        return S_OK;
 
     UINT createDeviceFlags = 0;
 #ifdef _DEBUG
@@ -946,41 +985,40 @@ void RenderFrame()
     // sequence works to handle both convergence and separation hot keys properly.
     //
 
-    //NvAPI_Status status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-    //if (SUCCEEDED(status))
+    if (!dx11_skip)
     {
-        g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
+        {
+            g_World *= XMMatrixTranslation(0.05f, 0.0f, 0.0f);
 
-        cb.mWorld      = XMMatrixTranspose(g_World);
-        cb.mView       = XMMatrixTranspose(g_View);
-        cb.mProjection = XMMatrixTranspose(g_Projection);
-        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+            cb.mWorld      = XMMatrixTranspose(g_World);
+            cb.mView       = XMMatrixTranspose(g_View);
+            cb.mProjection = XMMatrixTranspose(g_Projection);
+            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-        Render(L);
+            Render(L);
+        }
+
+        {
+            g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
+
+            cb.mWorld      = XMMatrixTranspose(g_World);
+            cb.mView       = XMMatrixTranspose(g_View);
+            cb.mProjection = XMMatrixTranspose(g_Projection);
+            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+            Render(R);
+        }
     }
 
-    //status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-    //if (SUCCEEDED(status))
+    //
+    // Present dx11 side
+    //
+    if (dx11_present_first && !dx11_skip)
     {
-        g_World *= XMMatrixTranslation(-0.05f, 0.0f, 0.0f);
-
-        cb.mWorld      = XMMatrixTranspose(g_World);
-        cb.mView       = XMMatrixTranspose(g_View);
-        cb.mProjection = XMMatrixTranspose(g_Projection);
-        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-        Render(R);
+        hr = g_pSwapChain->Present(dx11_sync_interval, dx11_flags);
+        if (hr != 0x887a000a)  // Busy is OK
+            ThrowIfFailed(hr);
     }
-
-    //
-    // Present our back buffer to our front buffer
-    //
-    // In stereo mode, the driver knows to use the 2x width buffer, and
-    // present each eye in order.
-    //
-    hr = g_pSwapChain->Present(dx11_sync_interval, dx11_flags);
-    if (hr != 0x887a000a)  // Busy is OK
-        ThrowIfFailed(hr);
 
     hr = g_device9Ex->BeginScene();
     ThrowIfFailed(hr);
@@ -995,5 +1033,13 @@ void RenderFrame()
 
     // Now Present via the DX9 device as well. This will be the one actually showing.
     hr = g_device9Ex->PresentEx(nullptr, nullptr, nullptr, nullptr, dx9_flags);
-    ThrowIfFailed(hr);
+    if (hr != 0x8876021c)  // Still drawing is OK
+        ThrowIfFailed(hr);
+
+    if (!dx11_present_first && !dx11_skip)
+    {
+        hr = g_pSwapChain->Present(dx11_sync_interval, dx11_flags);
+        if (hr != 0x887a000a)  // Busy is OK
+            ThrowIfFailed(hr);
+    }
 }
