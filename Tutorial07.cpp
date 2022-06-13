@@ -56,6 +56,68 @@
 using namespace DirectX;
 
 //--------------------------------------------------------------------------------------
+// More notes about test results.
+//
+// 1) It is possible to have both DX9 and DX11 devices target the same window.
+// This does not give any errors if both are set to DISCARD. However, they
+// will interfere with each other in windowed mode, causing flickering between
+// the competing images. In fullscreen, DX11 takes over and is only one visible,
+// even though the DX9 comes later.
+// If they are set to FLIP, then only DX11 will be seen, it seems to preempt
+// the DX9 Present no matter the settings.
+// It's not possible to use FLIPEX, as that returns an error if both use it,
+// and also 3D does not engage when using FLIPEX on DX9 path.
+// It makes the most sense to use DX9 FLIP for windowed, and DISCARD for both
+// when fullscreen.
+// There does not seem to be any combination for parameters that will allow the
+// DX9 present to take precedence over the dx11 one, when both are in the same
+// window.
+
+D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_FLIP;
+DXGI_SWAP_EFFECT dx11_swap_mode     = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+UINT             dx11_sync_interval = 1;
+UINT             dx11_flags         = 0;
+DWORD            dx9_flags          = D3DPRESENT_INTERVAL_DEFAULT;
+
+// Some notes:
+//  It would be interesting to use the D3DSWAPEFFECT_FLIPEX SwapEffect, as that can then
+//  allow for D3DPRESENT_FORCEIMMEDIATE to be used at the DX9->Present call.  That would
+//  in theory preempt a pending DX11 frame, and show only the DX9 stereo output. However-
+//  this fails with an Access_Denied error.  It is apparently not legal to have more than
+//  one device using this SwapEffect mode for a given window.  It fails whether DX9 is init
+//  first or last.  It fails if I do two dx9 in a row.
+//
+//  We must use d3d9Ex in order to allow for surface sharing, so the Device is Device9Ex.
+//  The Device9Ex is created with the primary window as the output, so that the swap chain
+//  used will be the main output, not the child window for dx11.
+//
+//  Creating a child window of the primary window seems to work as desired.  The swapchain
+//  for the DX11 device is targeting the child window, which is created right before DX11
+//  init, and is set to not-visible.  Then, DX9 setup is done, which targets the primary
+//  window as the swapchain output, and this then shutters properly, showing L/R colors
+//  that are different for each eye, as set via the SetActiveEye.  Next step would be to
+//  share surface the DX11 output to the DX9 side, but I think it's not worth the effort,
+//  as it's clearly working.  Whenever DX11 was primary output, even accidentally, it would
+//  show spinning cube on blue background, and nothing showing for DX9 colors.
+//  This will also keep games working, because the child window is invisible to all other
+//  callers, and so any events should still go to the game-owned main window.
+//  If the child window is set to Shown, then the DX11 present takes over and blocks the
+//  DX9 present, even as 3D Vision is actively shuttering.
+//
+//  With different Present flags, the frame might be busy, and then the BeginScene would
+//  fail with a busy-GPU error.  So the output from the DX11 needs to be buffered, so that
+//  the DX9 side can preempt it.  We don't want to change any flip mode behavior for games,
+//  so this should work.
+//
+//  This also works in windowed mode, which should be quite a lot better for future games
+//  and drivers, because Windows is moving away from exclusive full screen in all cases.
+//  This should work correctly in a borderless full screen mode.
+//
+//  Need to support exclusive full screen too, Drivers 5xx don't seem to run DX9 windowed
+//  anymore.  So for this, we'll follow the UE4 approach, where it starts windowed, then
+//  switches full screen.  That'll be done in ActivateStereo to reset both swapchains.
+
+//--------------------------------------------------------------------------------------
 // Structures
 //--------------------------------------------------------------------------------------
 struct SimpleVertex
@@ -231,13 +293,15 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
         return err;
     }
 
-    // Create a child window for the dx11 output to be invisible.
-    g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
-    if (!g_child_hWnd)
-    {
-        DWORD err = GetLastError();
-        return err;
-    }
+    g_child_hWnd = g_hWnd;
+
+    //// Create a child window for the dx11 output to be invisible.
+    //g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
+    //if (!g_child_hWnd)
+    //{
+    //    DWORD err = GetLastError();
+    //    return err;
+    //}
 
     bool shown = IsWindowVisible(g_child_hWnd);
     shown      = IsWindowVisible(g_hWnd);
@@ -317,7 +381,7 @@ void ToggleFullScreen()
      * Don't do this sequence, because the dx11 swap chain does not need to
      * be full screen, and can stay at it's regular size.  If this goes into
      * full screen, it interferes with the primary window, becoming frontmost.
-     */ 
+     */
     //BOOL win_state;
     //hr = g_pSwapChain->GetFullscreenState(&win_state, nullptr);
     //ThrowIfFailed(hr);
@@ -461,11 +525,11 @@ HRESULT InitDX11Device()
     // Set primitive topology
     g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // First present is sometimes needed for init.
-    //g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[L], Colors::LimeGreen);
-    //g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[R], Colors::LimeGreen);
-    //hr = g_pSwapChain->Present(0, 0);
-    //ThrowIfFailed(hr);
+    // First present is sometimes needed for init.  With DO_NOT_SEQUENCE
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[L], Colors::Lavender);
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView[R], Colors::Plum);
+    hr = g_pSwapChain->Present(0, 0);
+    ThrowIfFailed(hr);
 
     return hr;
 }
@@ -494,11 +558,11 @@ HRESULT CreateDX11Device()
     sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount                        = 2;  // Must be two or more
 
-    sd.Windowed                           = TRUE;  // Starts windowed, go fullscreen on alt-enter
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.Windowed   = TRUE;  // Starts windowed, go fullscreen on alt-enter
+    sd.SwapEffect = dx11_swap_mode;
+    sd.Flags      = 0;
 
-    sd.OutputWindow                       = g_child_hWnd;
+    sd.OutputWindow = g_child_hWnd;
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
@@ -671,44 +735,6 @@ HRESULT CreateDX11Device()
 // Setup a DX9 output device, that will be done via Direct Mode.
 // SetDriverMode(DirectMode) must already be done.
 
-// Some notes:
-//  It would be interesting to use the D3DSWAPEFFECT_FLIPEX SwapEffect, as that can then
-//  allow for D3DPRESENT_FORCEIMMEDIATE to be used at the DX9->Present call.  That would
-//  in theory preempt a pending DX11 frame, and show only the DX9 stereo output. However-
-//  this fails with an Access_Denied error.  It is apparently not legal to have more than
-//  one device using this SwapEffect mode for a given window.  It fails whether DX9 is init
-//  first or last.  It fails if I do two dx9 in a row.
-//
-//  We must use d3d9Ex in order to allow for surface sharing, so the Device is Device9Ex.
-//  The Device9Ex is created with the primary window as the output, so that the swap chain
-//  used will be the main output, not the child window for dx11.
-//
-//  Creating a child window of the primary window seems to work as desired.  The swapchain
-//  for the DX11 device is targeting the child window, which is created right before DX11
-//  init, and is set to not-visible.  Then, DX9 setup is done, which targets the primary
-//  window as the swapchain output, and this then shutters properly, showing L/R colors
-//  that are different for each eye, as set via the SetActiveEye.  Next step would be to
-//  share surface the DX11 output to the DX9 side, but I think it's not worth the effort,
-//  as it's clearly working.  Whenever DX11 was primary output, even accidentally, it would
-//  show spinning cube on blue background, and nothing showing for DX9 colors.
-//  This will also keep games working, because the child window is invisible to all other
-//  callers, and so any events should still go to the game-owned main window.
-//  If the child window is set to Shown, then the DX11 present takes over and blocks the
-//  DX9 present, even as 3D Vision is actively shuttering.
-//
-//  With different Present flags, the frame might be busy, and then the BeginScene would
-//  fail with a busy-GPU error.  So the output from the DX11 needs to be buffered, so that
-//  the DX9 side can preempt it.  We don't want to change any flip mode behavior for games,
-//  so this should work.
-//
-//  This also works in windowed mode, which should be quite a lot better for future games
-//  and drivers, because Windows is moving away from exclusive full screen in all cases.
-//  This should work correctly in a borderless full screen mode.
-//
-//  Need to support exclusive full screen too, Drivers 5xx don't seem to run DX9 windowed
-//  anymore.  So for this, we'll follow the UE4 approach, where it starts windowed, then
-//  switches full screen.  That'll be done in ActivateStereo to reset both swapchains.
-
 HRESULT InitDX9Device()
 {
     HRESULT       hr;
@@ -723,7 +749,7 @@ HRESULT InitDX9Device()
     d3dpp.BackBufferHeight     = g_ScreenHeight;
     d3dpp.BackBufferFormat     = D3DFMT_A8R8G8B8;
     d3dpp.BackBufferCount      = 1;
-    d3dpp.SwapEffect           = D3DSWAPEFFECT_DISCARD;
+    d3dpp.SwapEffect           = dx9_swap_mode;
     d3dpp.hDeviceWindow        = g_hWnd;
     d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 
@@ -945,14 +971,16 @@ void RenderFrame()
 
         Render(R);
     }
+
     //
     // Present our back buffer to our front buffer
     //
     // In stereo mode, the driver knows to use the 2x width buffer, and
     // present each eye in order.
     //
-    hr = g_pSwapChain->Present(1, 0);
-    ThrowIfFailed(hr);
+    hr = g_pSwapChain->Present(dx11_sync_interval, dx11_flags);
+    if (hr != 0x887a000a)  // Busy is OK
+        ThrowIfFailed(hr);
 
     hr = g_device9Ex->BeginScene();
     ThrowIfFailed(hr);
@@ -966,6 +994,6 @@ void RenderFrame()
     ThrowIfFailed(hr);
 
     // Now Present via the DX9 device as well. This will be the one actually showing.
-    hr = g_device9Ex->PresentEx(nullptr, nullptr, nullptr, nullptr, D3DPRESENT_INTERVAL_DEFAULT);
+    hr = g_device9Ex->PresentEx(nullptr, nullptr, nullptr, nullptr, dx9_flags);
     ThrowIfFailed(hr);
 }
