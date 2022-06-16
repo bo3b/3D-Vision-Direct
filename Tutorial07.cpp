@@ -109,6 +109,8 @@ bool             dx11_present_first = true;
 bool             dx11_window        = true;
 bool             dx11_make_child    = true;
 bool             dx11_skip          = false;
+UINT             g_ScreenWidth      = 1920;
+UINT             g_ScreenHeight     = 1080;
 
 // Some notes:
 //  It would be interesting to use the D3DSWAPEFFECT_FLIPEX SwapEffect, as that can then
@@ -196,8 +198,6 @@ XMMATRIX g_View;
 XMMATRIX g_Projection;
 
 StereoHandle g_StereoHandle;
-UINT         g_ScreenWidth  = 2560;
-UINT         g_ScreenHeight = 1440;
 
 IDirect3DDevice9Ex*  g_device9Ex;
 IDirect3DSwapChain9* g_swapChainDx9;
@@ -324,38 +324,36 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
         return err;
     }
 
-    if (!dx11_skip)
+    DWORD window_type = WS_OVERLAPPED;
+    if (dx11_make_child)
+        window_type = WS_CHILD;
+
+    WNDCLASSEX wc;
+    // clear out the window class for use
+    ZeroMemory(&wc, sizeof(WNDCLASSEX));
+    // fill in the struct with the needed information
+    wc.cbSize        = sizeof(WNDCLASSEX);
+    wc.style         = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc   = DefWindowProc;
+    wc.hInstance     = GetModuleHandle(nullptr);
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)COLOR_WINDOW;
+    wc.lpszClassName = L"ChildWindow";
+
+    // register the window class
+    RegisterClassEx(&wc);
+
+    // Create a child window for the dx11 output to be invisible.
     {
-        DWORD window_type = WS_OVERLAPPED;
-        if (dx11_make_child)
-            window_type = WS_CHILD;
-
-        WNDCLASSEX wc;
-        // clear out the window class for use
-        ZeroMemory(&wc, sizeof(WNDCLASSEX));
-        // fill in the struct with the needed information
-        wc.cbSize        = sizeof(WNDCLASSEX);
-        wc.style         = CS_HREDRAW | CS_VREDRAW;
-        wc.lpfnWndProc   = DefWindowProc;
-        wc.hInstance     = GetModuleHandle(nullptr);
-        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)COLOR_WINDOW;
-        wc.lpszClassName = L"ChildWindow";
-
-        // register the window class
-        RegisterClassEx(&wc);
-
         // Create a child window for the dx11 output to be invisible.
-        {
-            // Create a child window for the dx11 output to be invisible.
-            g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"ChildWindow", nullptr, window_type, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
-        }
-        if (!g_child_hWnd)
-        {
-            DWORD err = GetLastError();
-            return err;
-        }
+        g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"ChildWindow", nullptr, window_type, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
     }
+    if (!g_child_hWnd)
+    {
+        DWORD err = GetLastError();
+        return err;
+    }
+
     bool shown = IsWindowVisible(g_child_hWnd);
     shown      = IsWindowVisible(g_hWnd);
 
@@ -832,7 +830,9 @@ HRESULT InitDX9Device()
     // create the DX9 device we can use for Direct Mode output
     // For full screen use. Doing this at init time goes immediately to full
     // screen mode, so we don't have resize buffers or Reset.
-    hr = d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, nullptr, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, d3dpp.Windowed ? nullptr : &fullscreen, &g_device9Ex);
+    // Required hFocusWindow param, even if specified in d3dpp. Otherwise
+    // it will not go into full screen mode and switch monitor resolution.
+    hr = d3d9Ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, g_hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, d3dpp.Windowed ? nullptr : &fullscreen, &g_device9Ex);
     ThrowIfFailed(hr);
 
     hr = g_device9Ex->GetSwapChain(0, &g_swapChainDx9);
