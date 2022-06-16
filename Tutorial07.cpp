@@ -100,8 +100,7 @@ using namespace DirectX;
 // dx11 present before or after dx9 present works. dx11 Present first is
 // slightly better, because overlays will then draw and be sent stereo.
 
-
-D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_FLIPEX;
+D3DSWAPEFFECT    dx9_swap_mode      = D3DSWAPEFFECT::D3DSWAPEFFECT_DISCARD;
 DXGI_SWAP_EFFECT dx11_swap_mode     = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD;
 UINT             dx11_sync_interval = 1;
 UINT             dx11_flags         = 0;
@@ -325,21 +324,38 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
         return err;
     }
 
-    DWORD window_type = WS_OVERLAPPED;
-    if (dx11_make_child)
-        window_type = WS_CHILD;
-
-    // Create a child window for the dx11 output to be invisible.
+    if (!dx11_skip)
     {
+        DWORD window_type = WS_OVERLAPPED;
+        if (dx11_make_child)
+            window_type = WS_CHILD;
+
+        WNDCLASSEX wc;
+        // clear out the window class for use
+        ZeroMemory(&wc, sizeof(WNDCLASSEX));
+        // fill in the struct with the needed information
+        wc.cbSize        = sizeof(WNDCLASSEX);
+        wc.style         = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc   = DefWindowProc;
+        wc.hInstance     = GetModuleHandle(nullptr);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)COLOR_WINDOW;
+        wc.lpszClassName = L"ChildWindow";
+
+        // register the window class
+        RegisterClassEx(&wc);
+
         // Create a child window for the dx11 output to be invisible.
-        g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"TutorialWindowClass", nullptr, window_type, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
+        {
+            // Create a child window for the dx11 output to be invisible.
+            g_child_hWnd = CreateWindowEx(WS_EX_NOPARENTNOTIFY, L"ChildWindow", nullptr, window_type, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g_hWnd, nullptr, hInstance, nullptr);
+        }
+        if (!g_child_hWnd)
+        {
+            DWORD err = GetLastError();
+            return err;
+        }
     }
-    if (!g_child_hWnd)
-    {
-        DWORD err = GetLastError();
-        return err;
-    }
-
     bool shown = IsWindowVisible(g_child_hWnd);
     shown      = IsWindowVisible(g_hWnd);
 
@@ -882,6 +898,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     PAINTSTRUCT ps;
     HDC         hdc;
+
+    if (hWnd == g_child_hWnd)
+        DebugBreak();
 
     switch (message)
     {
