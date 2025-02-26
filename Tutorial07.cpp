@@ -314,10 +314,10 @@ HRESULT InitDevice()
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
 	sd.BufferCount = 1;
-	sd.BufferDesc.Width = g_ScreenWidth;// *2;	// Swapchain needs to be 2x sized for direct stereo.
+	sd.BufferDesc.Width = g_ScreenWidth;
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision 
+	sd.BufferDesc.RefreshRate.Numerator = 120;	// Needs to be 120Hz for 3D Vision emitter
 	sd.BufferDesc.RefreshRate.Denominator = 1;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	sd.OutputWindow = g_hWnd;
@@ -333,13 +333,11 @@ HRESULT InitDevice()
 
 	// For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
 	// Vision will not activate.
-	hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
-	if (FAILED(hr))
-		return hr;
+	//hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
+	//if (FAILED(hr))
+	//	return hr;
 
 	// Create a render target view from the backbuffer
-	//
-	// Since this is derived from the backbuffer, it will also be 2x in width.
 	ID3D11Texture2D* pBackBuffer = nullptr;
 	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
 	if (FAILED(hr))
@@ -352,7 +350,7 @@ HRESULT InitDevice()
 	// Create depth stencil texture
 	D3D11_TEXTURE2D_DESC descDepth;
 	ZeroMemory(&descDepth, sizeof(descDepth));
-	descDepth.Width = g_ScreenWidth;// *2;		// Direct stereo needs 2x size
+	descDepth.Width = g_ScreenWidth;
 	descDepth.Height = g_ScreenHeight;
 	descDepth.MipLevels = 1;
 	descDepth.ArraySize = 1;
@@ -384,7 +382,7 @@ HRESULT InitDevice()
 	// This viewport is 2x the screen width.  The documentation directly contradicts
 	// this usage and suggests per-eye specific ViewPorts, but this works correctly.
 	D3D11_VIEWPORT vp;
-	vp.Width = (FLOAT)g_ScreenWidth;// *2;		// Direct stereo needs the viewport 2x as well
+	vp.Width = (FLOAT)g_ScreenWidth;
 	vp.Height = (FLOAT)g_ScreenHeight;
 	vp.MinDepth = 0.0f;
 	vp.MaxDepth = 1.0f;
