@@ -672,9 +672,9 @@ void RenderFrame()
 	float pSeparationPercentage;
 	float pEyeSeparation;
 
-	status = NvAPI_Stereo_GetConvergence(g_StereoHandle, &pConvergence);
-	status = NvAPI_Stereo_GetSeparation(g_StereoHandle, &pSeparationPercentage);
-	status = NvAPI_Stereo_GetEyeSeparation(g_StereoHandle, &pEyeSeparation);
+	pEyeSeparation = 10.10f;
+	pConvergence = 4.0f;
+	pSeparationPercentage = 0.52f;
 
 	float separation = pEyeSeparation * pSeparationPercentage / 100;
 	float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
@@ -687,8 +687,6 @@ void RenderFrame()
 	// The _41 parameter is the X translation after the perspective divide.
 	// This sequence works to handle both convergence and separation hot keys properly.
 	//
-	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
-	if (SUCCEEDED(status))
 	{
 		cb.mWorld = XMMatrixTranspose(g_World);
 		cb.mView = XMMatrixTranspose(g_View);
@@ -702,8 +700,8 @@ void RenderFrame()
 		Render();
 	}
 
-	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_RIGHT);
-	if (SUCCEEDED(status))
+	g_pSwapChain->Present(1, 0);
+
 	{
 		cb.mWorld = XMMatrixTranspose(g_World);
 		cb.mView = XMMatrixTranspose(g_View);
@@ -723,5 +721,5 @@ void RenderFrame()
 	// In stereo mode, the driver knows to use the 2x width buffer, and
 	// present each eye in order.
 	//
-	g_pSwapChain->Present(0, 0);
+	g_pSwapChain->Present(1, 0);
 }
