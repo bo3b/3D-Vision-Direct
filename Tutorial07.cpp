@@ -38,6 +38,14 @@
 //	Updated to simplify the code for this code branch.
 //	In this branch, the barest minimum of DX11 is used, to make the use of
 //	3D Vision Direct Mode more clear.
+// 
+// Bo3b: 2-25-25
+//	This variant is exp_usb branch. The goal is to switch up the sample to
+//	go direct to the nvidia usb emitter for a 3D Vision hardware setup that
+//  will not require nvidia 3D Vision driver.
+//	The sample already draws both eyes independently, instead of going to
+//	DirectMode buffers, we'll do a Present for each eye, and tick the 
+//	emitter after each to swap eyes. 
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
@@ -148,6 +156,12 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
+
+			// Handle Esc key to exit
+			if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+			{
+				PostQuitMessage(0);
+			}
 		}
 		else
 		{
@@ -672,8 +686,8 @@ void RenderFrame()
 	// Drawing same object twice, once for each eye.
 	// Eye specific setup is for the Projection matrix.
 	// The _31 parameter is the X translation for the off center Projection.
-	// The _41 parameter, I don't presently know what it is, but this
-	// sequence works to handle both convergence and separation hot keys properly.
+	// The _41 parameter is the X translation after the perspective divide.
+	// This sequence works to handle both convergence and separation hot keys properly.
 	//
 	status = NvAPI_Stereo_SetActiveEye(g_StereoHandle, NVAPI_STEREO_EYE_LEFT);
 	if (SUCCEEDED(status))
