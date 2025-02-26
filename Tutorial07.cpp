@@ -55,9 +55,6 @@
 #include <directxcolors.h>
 #include "resource.h"
 
-#include "nvapi.h"
-#include "nvapi_lite_stereo.h"
-
 
 using namespace DirectX;
 
@@ -104,7 +101,6 @@ XMMATRIX                            g_World;
 XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 
-StereoHandle						g_StereoHandle;
 UINT								g_ScreenWidth = 1280;
 UINT								g_ScreenHeight = 720;
 
@@ -113,9 +109,7 @@ UINT								g_ScreenHeight = 720;
 // Forward declarations
 //--------------------------------------------------------------------------------------
 HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow);
-HRESULT InitStereo();
 HRESULT InitDevice();
-HRESULT ActivateStereo();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void RenderFrame();
@@ -133,16 +127,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
 
-	if (FAILED(InitStereo()))
-		return 0;
-
 	if (FAILED(InitDevice()))
-	{
-		CleanupDevice();
-		return 0;
-	}
-
-	if (FAILED(ActivateStereo()))
 	{
 		CleanupDevice();
 		return 0;
@@ -211,52 +196,6 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 	ShowWindow(g_hWnd, nCmdShow);
 
 	return S_OK;
-}
-
-
-//--------------------------------------------------------------------------------------
-// Setup nvapi, and enable stereo by direct mode for the app.
-// This must be called before the Device is created for Direct Mode to work.
-//--------------------------------------------------------------------------------------
-HRESULT InitStereo()
-{
-	NvAPI_Status status;
-
-	status = NvAPI_Initialize();
-	if (FAILED(status))
-		return status;
-
-	// The entire point is to show stereo.  
-	// If it's not enabled in the control panel, let the user know.
-	NvU8 stereoEnabled;
-	status = NvAPI_Stereo_IsEnabled(&stereoEnabled);
-	if (FAILED(status) || !stereoEnabled)
-	{
-		MessageBox(g_hWnd, L"3D Vision is not enabled. Enable it in the NVidia Control Panel.", L"Error", MB_OK);
-		return status;
-	}
-
-	status = NvAPI_Stereo_SetDriverMode(NVAPI_STEREO_DRIVER_MODE_DIRECT);
-	if (FAILED(status))
-		return status;
-
-	return status;
-}
-
-
-//--------------------------------------------------------------------------------------
-// Activate stereo for the given device.
-// This must be called after the device is created.
-//--------------------------------------------------------------------------------------
-HRESULT ActivateStereo()
-{
-	NvAPI_Status status;
-
-	status = NvAPI_Stereo_CreateHandleFromIUnknown(g_pd3dDevice, &g_StereoHandle);
-	if (FAILED(status))
-		return status;
-
-	return status;
 }
 
 
@@ -583,8 +522,6 @@ void CleanupDevice()
 	if (g_pSwapChain) g_pSwapChain->Release();
 	if (g_pImmediateContext) g_pImmediateContext->Release();
 	if (g_pd3dDevice) g_pd3dDevice->Release();
-
-	if (g_StereoHandle) NvAPI_Stereo_DestroyHandle(g_StereoHandle);
 }
 
 
@@ -666,7 +603,6 @@ void RenderFrame()
 	// the 3D settings.
 	// The variable names are a bit misleading at present.
 	//
-	NvAPI_Status status;
 	SharedCB cb;
 	float pConvergence;
 	float pSeparationPercentage;
