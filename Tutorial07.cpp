@@ -54,9 +54,24 @@
 #include <directxmath.h>
 #include <directxcolors.h>
 #include "resource.h"
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <iomanip>
 
+#include "Timer.h"
 
 using namespace DirectX;
+
+//--------------------------------------------------------------------------------------
+// Forward declarations
+//--------------------------------------------------------------------------------------
+HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow);
+HRESULT InitDevice();
+void CleanupDevice();
+LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
+void RenderFrame();
+
 
 //--------------------------------------------------------------------------------------
 // Structures
@@ -104,16 +119,9 @@ XMMATRIX                            g_Projection;
 UINT								g_ScreenWidth = 1280;
 UINT								g_ScreenHeight = 720;
 
-
-//--------------------------------------------------------------------------------------
-// Forward declarations
-//--------------------------------------------------------------------------------------
-HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow);
-HRESULT InitDevice();
-void CleanupDevice();
-LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-void RenderFrame();
-
+Timer								g_Timer;
+double								g_lastFrame = 0;
+std::ostringstream					g_out;
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing 
@@ -195,6 +203,9 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
 	ShowWindow(g_hWnd, nCmdShow);
 
+	g_Timer.Start();
+	g_out << std::fixed << std::setprecision(2);
+
 	return S_OK;
 }
 
@@ -252,7 +263,7 @@ HRESULT InitDevice()
 
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
-	sd.BufferCount = 1;
+	sd.BufferCount = 2;
 	sd.BufferDesc.Width = g_ScreenWidth;
 	sd.BufferDesc.Height = g_ScreenHeight;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -263,6 +274,7 @@ HRESULT InitDevice()
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
 	sd.Windowed = TRUE;
+	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
 	// Create the simple DX11, Device, SwapChain, and Context.
 	hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0,
@@ -587,6 +599,21 @@ void Render()
 }
 
 
+void SleepMicroseconds(int64_t microseconds)
+{
+	LARGE_INTEGER frequency, start, current;
+	QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&start);
+
+	int64_t targetTicks = (microseconds * frequency.QuadPart) / 1000000;
+
+	do {
+		QueryPerformanceCounter(&current);
+	} while (current.QuadPart - start.QuadPart < targetTicks);
+}
+
+int64_t stall = 0;
+
 //--------------------------------------------------------------------------------------
 // Render a frame, both eyes.
 //--------------------------------------------------------------------------------------
@@ -615,6 +642,10 @@ void RenderFrame()
 	float separation = pEyeSeparation * pSeparationPercentage / 100;
 	float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
 
+	//stall += 10;
+	//SleepMicroseconds(stall);
+
+	double leftEyeTime = g_Timer.GetElapsedMicroseconds();
 
 	//
 	// Drawing same object twice, once for each eye.
@@ -635,8 +666,12 @@ void RenderFrame()
 
 		Render();
 	}
-
 	g_pSwapChain->Present(1, 0);
+
+	g_out << "Left eye frame time:  " << (g_Timer.GetElapsedMicroseconds() - leftEyeTime) / 1000.0f << " ms\n";
+	OutputDebugStringA(g_out.str().c_str());
+
+	double rightEyeTime = g_Timer.GetElapsedMicroseconds();
 
 	{
 		cb.mWorld = XMMatrixTranspose(g_World);
@@ -650,12 +685,15 @@ void RenderFrame()
 
 		Render();
 	}
-
-	//
-	// Present our back buffer to our front buffer
-	//
-	// In stereo mode, the driver knows to use the 2x width buffer, and
-	// present each eye in order.
-	//
 	g_pSwapChain->Present(1, 0);
+
+	g_out << "Right eye frame time: " << (g_Timer.GetElapsedMicroseconds() - rightEyeTime) / 1000.0f << " ms\n";
+	OutputDebugStringA(g_out.str().c_str());
+
+	double currentFrame = g_Timer.GetElapsedMicroseconds();
+
+	g_out << "  full frame time:               " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
+	OutputDebugStringA(g_out.str().c_str());
+
+	g_lastFrame = currentFrame;
 }
