@@ -60,6 +60,7 @@
 #include <iomanip>
 
 #include "Timer.h"
+#include "nvidiaShutterGlasses.h"
 
 using namespace DirectX;
 
@@ -122,6 +123,8 @@ LONG								g_ScreenHeight = 720;
 Timer								g_Timer;
 double								g_lastFrame = 0;
 std::ostringstream					g_out;
+
+NvidiaShutterGlasses				g_shutterGlasses;
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing 
@@ -668,6 +671,7 @@ void RenderFrame()
 		Render();
 	}
 	g_pSwapChain->Present(1, 0);
+	g_shutterGlasses.toggleEyes((int)0xffff0000);
 
 	if (out_limit > 0)
 	{
@@ -690,6 +694,7 @@ void RenderFrame()
 		Render();
 	}
 	g_pSwapChain->Present(1, 0);
+	g_shutterGlasses.toggleEyes((int)0xffff0000);
 
 	if (out_limit > 0)
 	{
