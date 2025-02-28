@@ -402,6 +402,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="nvidiaShutterGlasses.cpp" />
     <ClCompile Include="Tutorial07.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -413,12 +414,18 @@
     <ClInclude Include="nvapi_lite_sli.h" />
     <ClInclude Include="nvapi_lite_stereo.h" />
     <ClInclude Include="nvapi_lite_surround.h" />
+    <ClInclude Include="nvidiaShutterGlasses.h" />
     <CLInclude Include="resource.h" />
+    <ClInclude Include="shutterGlasses.h" />
+    <ClInclude Include="Timer.h" />
     <ResourceCompile Include="Tutorial07.rc" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="nvapi.lib" />
     <Library Include="nvapi64.lib" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="MonitorTimings.ini" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
