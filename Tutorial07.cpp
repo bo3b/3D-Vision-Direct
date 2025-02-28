@@ -649,7 +649,6 @@ void RenderFrame()
 	//stall += 10;
 	//SleepMicroseconds(stall);
 
-	double leftEyeTime = g_Timer.GetElapsedMicroseconds();
 
 	//
 	// Drawing same object twice, once for each eye.
@@ -658,6 +657,7 @@ void RenderFrame()
 	// The _41 parameter is the X translation after the perspective divide.
 	// This sequence works to handle both convergence and separation hot keys properly.
 	//
+	double leftEyeStart = g_Timer.GetElapsedMicroseconds();
 	{
 		cb.mWorld = XMMatrixTranspose(g_World);
 		cb.mView = XMMatrixTranspose(g_View);
@@ -673,14 +673,21 @@ void RenderFrame()
 	g_pSwapChain->Present(1, 0);
 	g_shutterGlasses.toggleEyes((int)0xffff0000);
 
+	double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
+	if (leftEyeElapsed > 16.6f)
+	{
+		g_out << "!! Left frame dropped. Eye swap.\n";
+		OutputDebugStringA(g_out.str().c_str());
+		out_limit++;
+	}
 	if (out_limit > 0)
 	{
-		g_out << "Left eye frame time:  " << (g_Timer.GetElapsedMicroseconds() - leftEyeTime) / 1000.0f << " ms\n";
+		g_out << "Left eye frame time:  " << leftEyeElapsed << " ms\n";
 		OutputDebugStringA(g_out.str().c_str());
 	}
+	
 
-	double rightEyeTime = g_Timer.GetElapsedMicroseconds();
-
+	double rightEyeStart = g_Timer.GetElapsedMicroseconds();
 	{
 		cb.mWorld = XMMatrixTranspose(g_World);
 		cb.mView = XMMatrixTranspose(g_View);
@@ -696,9 +703,16 @@ void RenderFrame()
 	g_pSwapChain->Present(1, 0);
 	g_shutterGlasses.toggleEyes((int)0xffff0000);
 
+	double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
+	if (rightEyeElapsed > 16.6f)
+	{
+		g_out << "!! Right frame dropped. Eye swap.\n";
+		OutputDebugStringA(g_out.str().c_str());
+		out_limit++;
+	}
 	if (out_limit > 0)
 	{
-		g_out << "Right eye frame time: " << (g_Timer.GetElapsedMicroseconds() - rightEyeTime) / 1000.0f << " ms\n";
+		g_out << "Right eye frame time: " << rightEyeElapsed << " ms\n";
 		OutputDebugStringA(g_out.str().c_str());
 
 		double currentFrame = g_Timer.GetElapsedMicroseconds();
