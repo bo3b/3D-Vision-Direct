@@ -34,7 +34,7 @@ string getDeviceName(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA devi
 	{
 		char name[256];
 		//strncpy_s(name, functionClassDeviceData->DevicePath, 256);
-		strncpy(name, functionClassDeviceData->DevicePath, 256);
+		strncpy_s(name, functionClassDeviceData->DevicePath, 256);
 		delete [] functionClassDeviceData;
 		return name;
     }
