@@ -255,7 +255,7 @@ void NvidiaShutterGlasses::refresh()
 	int timeout = (int)(rate * 4); // idle timeout(number of frames)
 
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { (SHORT)0, (SHORT)15 });
-	cout << "Monitor: " << MonitorID[currentProfile] << "       \n"
+	vs_out << "Monitor: " << MonitorID[currentProfile] << "       \n"
 		 << "EDID ID: " << EDID_ID[currentProfile] << "       \n"
 		 << "ScreenRefresh: " << rate << " Hz      \n"
 		 << "x: " << x_us << "us                   \n" //<< x << "       \n"
@@ -265,7 +265,8 @@ void NvidiaShutterGlasses::refresh()
 		 << "Timing Increment: " << increment << "us                   \n"
 		 << "                                        \n"
 		 << "                                        \n";
-	
+	OutputDebugStringA(vs_out.str().c_str());
+
 	int sequence[] = {	0x00031842,
 						0x00180001, w, x, y, 0x22242830, 0x0405080a, z,
 						0x00021c01, 0x00000002,	//note only 6 bytes are actually sent here

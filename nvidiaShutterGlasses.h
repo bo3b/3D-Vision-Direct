@@ -4,6 +4,7 @@
 
 #include <windows.h>
 #include <vector>
+#include <sstream>
 #include "shutterGlasses.h"
 #include <iostream>
 
@@ -33,6 +34,8 @@ private:
 	std::vector<float> valid_w_us;
 	int currentProfile;
 	HANDLE pipe0, pipe1;
+
+	std::ostringstream vs_out;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
