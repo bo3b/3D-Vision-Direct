@@ -116,8 +116,8 @@ XMMATRIX                            g_World;
 XMMATRIX                            g_View;
 XMMATRIX                            g_Projection;
 
-UINT								g_ScreenWidth = 1280;
-UINT								g_ScreenHeight = 720;
+LONG								g_ScreenWidth = 1280;
+LONG								g_ScreenHeight = 720;
 
 Timer								g_Timer;
 double								g_lastFrame = 0;
@@ -613,6 +613,7 @@ void SleepMicroseconds(int64_t microseconds)
 }
 
 int64_t stall = 0;
+int out_limit = 4;
 
 //--------------------------------------------------------------------------------------
 // Render a frame, both eyes.
@@ -668,8 +669,11 @@ void RenderFrame()
 	}
 	g_pSwapChain->Present(1, 0);
 
-	g_out << "Left eye frame time:  " << (g_Timer.GetElapsedMicroseconds() - leftEyeTime) / 1000.0f << " ms\n";
-	OutputDebugStringA(g_out.str().c_str());
+	if (out_limit > 0)
+	{
+		g_out << "Left eye frame time:  " << (g_Timer.GetElapsedMicroseconds() - leftEyeTime) / 1000.0f << " ms\n";
+		OutputDebugStringA(g_out.str().c_str());
+	}
 
 	double rightEyeTime = g_Timer.GetElapsedMicroseconds();
 
@@ -687,13 +691,17 @@ void RenderFrame()
 	}
 	g_pSwapChain->Present(1, 0);
 
-	g_out << "Right eye frame time: " << (g_Timer.GetElapsedMicroseconds() - rightEyeTime) / 1000.0f << " ms\n";
-	OutputDebugStringA(g_out.str().c_str());
+	if (out_limit > 0)
+	{
+		g_out << "Right eye frame time: " << (g_Timer.GetElapsedMicroseconds() - rightEyeTime) / 1000.0f << " ms\n";
+		OutputDebugStringA(g_out.str().c_str());
 
-	double currentFrame = g_Timer.GetElapsedMicroseconds();
+		double currentFrame = g_Timer.GetElapsedMicroseconds();
 
-	g_out << "  full frame time:               " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
-	OutputDebugStringA(g_out.str().c_str());
+		g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
+		OutputDebugStringA(g_out.str().c_str());
 
-	g_lastFrame = currentFrame;
+		g_lastFrame = currentFrame;
+		out_limit--;
+	}
 }
