@@ -59,6 +59,7 @@
 #include <string>
 #include <iomanip>
 
+#include "nvapi.h"
 #include "Timer.h"
 #include "nvidiaShutterGlasses.h"
 
@@ -208,6 +209,16 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 
 	g_Timer.Start();
 	g_out << std::fixed << std::setprecision(2);
+
+	NvAPI_Status test = g_shutterGlasses.getCurrentResolution_NVIDIA();
+	if (test != NVAPI_OK)
+	{
+		g_out << "!!! Fail !!!\n"
+			<< " Unable to fetch current resolution and timing. \n"
+			<< "!!! Fail !!!\n";
+		OutputDebugStringA(g_out.str().c_str());
+		exit(-1);
+	}
 
 	return S_OK;
 }

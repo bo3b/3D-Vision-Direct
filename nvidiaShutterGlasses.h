@@ -8,6 +8,8 @@
 #include "shutterGlasses.h"
 #include <iostream>
 
+#include "nvapi.h"
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class NvidiaShutterGlasses : public ShutterGlasses
@@ -19,6 +21,8 @@ public:
 	void toggleEyes(int offset);
 	void nextProfile();
 	void refresh();
+	NvAPI_Status getCurrentResolution_NVIDIA();
+
 	float x_offset;
 	float y_offset;
 	float w_offset;

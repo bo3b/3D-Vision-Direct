@@ -255,7 +255,8 @@ void NvidiaShutterGlasses::refresh()
 	int timeout = (int)(rate * 4); // idle timeout(number of frames)
 
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { (SHORT)0, (SHORT)15 });
-	vs_out << "Monitor: " << MonitorID[currentProfile] << "       \n"
+	vs_out << "\n----- From MonitorTimings.ini ------\n"
+		 << "Monitor: " << MonitorID[currentProfile] << "       \n"
 		 << "EDID ID: " << EDID_ID[currentProfile] << "       \n"
 		 << "ScreenRefresh: " << rate << " Hz      \n"
 		 << "x: " << x_us << "us                   \n" //<< x << "       \n"
@@ -263,6 +264,7 @@ void NvidiaShutterGlasses::refresh()
 		 << "z: " << z_us << "us                   \n" //<< z << "       \n"
 		 << "w: " << w_us << "us                   \n\n" //<< w << "       \n"
 		 << "Timing Increment: " << increment << "us                   \n"
+		 << "--------------------------------------\n" 
 		 << "                                        \n"
 		 << "                                        \n";
 	OutputDebugStringA(vs_out.str().c_str());
@@ -313,3 +315,179 @@ void NvidiaShutterGlasses::nextProfile()
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// This will change the monitor timings, so that it will enable LightBoost.
+// 
+// After long and tedious research, it turns out simple. LightBoost turns
+// on if we bump the back porch of the timing signal. This can be done in CreateCustomResolution
+// in NVidia control panel, but we want to do it programmatically to avoid external tools.
+//
+// The trick is to set the TotalPixels to 5 higher than it normally runs.
+// 5 extra lines in the vertical blank will tell the PG278QR to go into LightBoost mode.
+
+//#include "NvAPI.h"
+//#include <adl_sdk.h>
+
+// Get current display format and timing for an NVidia display.
+// Output details to VS Output for sanity checks.
+NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
+{
+	NvAPI_Status status;
+
+	status = NvAPI_Initialize();
+	if (status != NVAPI_OK) 
+	{
+		vs_out << "!!! NvAPI Initialization failed" << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		return status;
+	}
+
+	// We only can expect to use primary display?
+	// TODO: seems like we could allow syncing on an alternate display.
+	//status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
+	//if (status != NVAPI_OK)
+	//{
+	//	vs_out << "!!! Failed to get primary display handle" << std::endl;
+	//	OutputDebugStringA(vs_out.str().c_str());
+	//	return false;
+	//}
+
+	NvPhysicalGpuHandle gpuHandles[NVAPI_MAX_PHYSICAL_GPUS] = { 0 };
+	NvU32 gpuCount = 0;
+	status = NvAPI_EnumPhysicalGPUs(gpuHandles, &gpuCount);
+	if (status != NVAPI_OK) 
+	{
+		vs_out << "!!! Failed to enumerate NVidia GPUs - none in system?" << std::endl;
+		NvAPI_Unload();
+		OutputDebugString(vs_out.str().c_str());
+		return status;
+	}
+
+	// Get all display IDs connected to the first GPU
+	NV_GPU_DISPLAYIDS displayIds[NVAPI_MAX_DISPLAYS] = { 0 };
+	displayIds->version = NV_GPU_DISPLAYIDS_VER2;
+	NvU32 displayCount = 1;		// Only do first one for now.
+	status = NvAPI_GPU_GetConnectedDisplayIds(gpuHandles[0], displayIds, &displayCount, 0);
+	if (status != NVAPI_OK || displayCount == 0) 
+	{
+		vs_out << "!!! Failed to get connected display IDs. Count: " << displayCount << std::endl;
+		NvAPI_Unload();
+		OutputDebugString(vs_out.str().c_str());
+		return status;
+	}
+
+	// This seems to work for zeroed out NV_TIMING_INPUT.
+	// This is what we want- current timings that are active, not hypothetical variants
+	// that might be enabled someday.
+	NV_TIMING timing = {};
+	NV_TIMING_INPUT current = { 0 };
+	current.version = NV_TIMING_INPUT_VER;
+	status = NvAPI_DISP_GetTiming(displayIds[0].displayId, &current, &timing);
+	if (status != NVAPI_OK) 
+	{
+		vs_out << "Failed to retrieve current timing parameters" << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		return status;
+	}
+
+	vs_out << "Display Timing Details:" << std::endl;
+	vs_out << "----------------------" << std::endl;
+	vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << std::endl;
+	vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << std::endl;
+	vs_out << "Resolution: " << timing.HVisible << " x " << timing.VVisible << std::endl;
+	vs_out << "Vertical total pixels: " << timing.VTotal << std::endl;
+
+	//if (timing.TimingFlags & NV_TIMING_FLAGS_INTERLACED)
+	//	vs_out << "Scan Type: Interlaced" << std::endl;
+	//else
+	//	vs_out << "Scan Type: Progressive" << std::endl;
+
+	//if (timing.TimingFlags & NV_TIMING_FLAGS_PREFERRED)
+	//	vs_out << "Status: Preferred Timing" << std::endl;
+	OutputDebugStringA(vs_out.str().c_str());
+
+	NvAPI_Unload();
+
+	return NVAPI_OK;
+}
+
+//void GetCurrentResolution_AMD()
+//{
+//	int iAdapterIndex = 0;
+//	ADLDisplayMode displayMode;
+//	if (ADL_Display_Modes_Get(iAdapterIndex, -1, &displayMode) == ADL_OK) {
+//		std::cout << "AMD Current Resolution: " << displayMode.iXRes << "x" << displayMode.iYRes
+//			<< " @ " << displayMode.iRefreshRate << "Hz" << std::endl;
+//	}
+//	else {
+//		std::cerr << "Failed to retrieve AMD display settings." << std::endl;
+//	}
+//}
+
+//bool SetCustomResolution_NVIDIA(int width, int height, int refreshRate)
+//{
+//	NvAPI_Status status;
+//	NvDisplayHandle hNvDisplay = NULL;
+//	NV_TIMING timing = {};
+//
+//	status = NvAPI_Initialize();
+//	if (status != NVAPI_OK) {
+//		std::cerr << "NvAPI Initialization failed" << std::endl;
+//		return false;
+//	}
+//
+//	status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
+//	if (status != NVAPI_OK) {
+//		std::cerr << "Failed to get display handle" << std::endl;
+//		return false;
+//	}
+//
+//	status = NvAPI_DISP_GetTiming(hNvDisplay, &timing);
+//	if (status != NVAPI_OK) {
+//		std::cerr << "Failed to retrieve current timing parameters" << std::endl;
+//		return false;
+//	}
+//
+//	timing.horizontalTotal += 10;
+//	timing.verticalTotal += 5;
+//
+//	status = NvAPI_DISP_TryCustomDisplay(hNvDisplay, &timing);
+//	if (status != NVAPI_OK) {
+//		std::cerr << "Failed to set custom resolution" << std::endl;
+//		return false;
+//	}
+//
+//	std::cout << "Custom resolution set successfully on NVIDIA." << std::endl;
+//	return true;
+//}
+
+//bool SetCustomResolution_AMD(int width, int height, int refreshRate)
+//{
+//	int iAdapterIndex = 0;
+//	ADLDisplayMode displayMode = { width, height, refreshRate };
+//
+//	displayMode.iXRes = width;
+//	displayMode.iYRes = height;
+//	displayMode.iRefreshRate = refreshRate;
+//	displayMode.iTimingStandard = ADL_DL_TIMING_STANDARD_CVT;
+//	displayMode.iHTotal += 10; // Adjust horizontal total pixels
+//	displayMode.iVTotal += 5;  // Adjust vertical total pixels
+//
+//	if (ADL_Display_Modes_Set(iAdapterIndex, -1, &displayMode) == ADL_OK) {
+//		std::cout << "Custom resolution set successfully on AMD." << std::endl;
+//		return true;
+//	}
+//	else {
+//		std::cerr << "Failed to set custom resolution on AMD." << std::endl;
+//		return false;
+//	}
+//}
+
+//int main()
+//{
+//	GetCurrentResolution_NVIDIA();
+//	GetCurrentResolution_AMD();
+//	SetCustomResolution_NVIDIA(1920, 1080, 110);
+//	SetCustomResolution_AMD(1920, 1080, 110);
+//	return 0;
+//}
