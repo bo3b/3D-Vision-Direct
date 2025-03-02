@@ -1,5 +1,11 @@
 #pragma once
 
+// https://users.csc.calpoly.edu/~zwood/teaching/csc572/final11/rsomers/
+// https://github.com/bobsomers/3dvgl/tree/master
+// https://sourceforge.net/p/libnvstusb/code/HEAD/tree/
+// https://github.com/FlintEastwood/3DVisionActivator
+// http://www.mtbs3d.com/phpBB/viewtopic.php?f=26&t=3130
+// 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <windows.h>
@@ -19,6 +25,8 @@ public:
 	~NvidiaShutterGlasses();
 
 	void toggleEyes(int offset);
+	void setLeftEye(int offset);
+	void setRightEye(int offset);
 	void nextProfile();
 	void refresh();
 	NvAPI_Status getCurrentResolution_NVIDIA();

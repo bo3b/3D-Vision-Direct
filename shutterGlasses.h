@@ -20,6 +20,16 @@ public:
 		return leftEye;
 	}
 
+	void setLeftEye()
+	{
+		leftEye = true;
+	}
+
+	void setRightEye()
+	{
+		leftEye = false;
+	}
+
 private:
 	bool leftEye;
 };
