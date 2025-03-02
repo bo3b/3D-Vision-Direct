@@ -220,6 +220,8 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 		exit(-1);
 	}
 
+	g_shutterGlasses.setLeftEye((int)0xffff0000);
+
 	return S_OK;
 }
 
@@ -660,7 +662,7 @@ void RenderFrame()
 	//stall += 10;
 	//SleepMicroseconds(stall);
 
-
+	
 	//
 	// Drawing same object twice, once for each eye.
 	// Eye specific setup is for the Projection matrix.
@@ -682,14 +684,17 @@ void RenderFrame()
 		Render();
 	}
 	g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.toggleEyes((int)0xffff0000);
+
+	// Specifically set the LeftEye as active, not just toggle.
+	//g_shutterGlasses.setLeftEye((int)0xffff0000);
 
 	double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
 	if (leftEyeElapsed > 16.6f)
 	{
 		g_out << "!! Left frame dropped. Eye swap.\n";
 		OutputDebugStringA(g_out.str().c_str());
-		out_limit++;
+		out_limit = 2;
+		//g_shutterGlasses.refresh();	// re-init on drops
 	}
 	if (out_limit > 0)
 	{
@@ -712,15 +717,20 @@ void RenderFrame()
 		Render();
 	}
 	g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.toggleEyes((int)0xffff0000);
+
+	g_shutterGlasses.setRightEye((int)0xffff0000);
+	//g_shutterGlasses.setLeftEye((int)0xffff0000);
 
 	double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
 	if (rightEyeElapsed > 16.6f)
 	{
 		g_out << "!! Right frame dropped. Eye swap.\n";
 		OutputDebugStringA(g_out.str().c_str());
-		out_limit++;
+		out_limit = 2;
+		//g_shutterGlasses.refresh();	// re-init on drops
 	}
+
+	// 
 	if (out_limit > 0)
 	{
 		g_out << "Right eye frame time: " << rightEyeElapsed << " ms\n";

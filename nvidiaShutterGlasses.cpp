@@ -276,20 +276,20 @@ void NvidiaShutterGlasses::refresh()
 						0x00011b01, 0x00000007,	//note only 5 bytes are actually sent here
 						0x00031840 };
 
-	HANDLE readPipe = openUsbDeviceFile("PIPE03");
+	//HANDLE readPipe = openUsbDeviceFile("PIPE03");
 	char readBuffer[7];
 
 	writeToPipe(pipe0, sequence, 4);    // 42 18 03 00
 	// Here start the problems with the sleep mode of the IR emitter !!!
 	// readFromPipe fails after sleep mode
-	readFromPipe(readPipe, readBuffer, 7);
+	//readFromPipe(readPipe, readBuffer, 7);
 	writeToPipe(pipe0, sequence+1, 28); // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
 	writeToPipe(pipe0, sequence+8, 6);  // 01 1c 02 00,02 00
 	writeToPipe(pipe0, sequence+10, 6); // 01 1e 02 00,timeout
 	writeToPipe(pipe0, sequence+12, 5); // 01 1b 01 00,07
 	writeToPipe(pipe0, sequence+13, 4); // 40 18 03 00
 
-	CloseHandle(readPipe);
+	//CloseHandle(readPipe);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -396,7 +396,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 
 	// This seems to work for zeroed out NV_TIMING_INPUT.
 	// This is what we want- current timings that are active, not hypothetical variants
-	// that might be enabled someday.
+	// that might be enabled someday. 
 	// However, the resolution does not change from the native spec, when changing to 
 	// other resolutions.
 	
