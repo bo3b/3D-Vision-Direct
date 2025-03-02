@@ -269,27 +269,32 @@ void NvidiaShutterGlasses::refresh()
 		 << "                                        \n";
 	OutputDebugStringA(vs_out.str().c_str());
 
-	int sequence[] = {	0x00031842,
+	int sequence[] = {	0x00031840,				// set 40 from 42 to skip read, just clear
 						0x00180001, w, x, y, 0x22242830, 0x0405080a, z,
 						0x00021c01, 0x00000002,	//note only 6 bytes are actually sent here
 						0x00021e01, timeout,	//note only 6 bytes are actually sent here
 						0x00011b01, 0x00000007,	//note only 5 bytes are actually sent here
 						0x00031840 };
 
-	//HANDLE readPipe = openUsbDeviceFile("PIPE03");
-	char readBuffer[7];
 
-	writeToPipe(pipe0, sequence, 4);    // 42 18 03 00
-	// Here start the problems with the sleep mode of the IR emitter !!!
-	// readFromPipe fails after sleep mode
-	//readFromPipe(readPipe, readBuffer, 7);
+	writeToPipe(pipe0, sequence, 4);    // 40 18 03 00
 	writeToPipe(pipe0, sequence+1, 28); // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
 	writeToPipe(pipe0, sequence+8, 6);  // 01 1c 02 00,02 00
 	writeToPipe(pipe0, sequence+10, 6); // 01 1e 02 00,timeout
 	writeToPipe(pipe0, sequence+12, 5); // 01 1b 01 00,07
 	writeToPipe(pipe0, sequence+13, 4); // 40 18 03 00
 
-	//CloseHandle(readPipe);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Just send the clear command by itself. 
+// It is the last sequence before the example goes into alternating eye pings.
+
+void NvidiaShutterGlasses::clear()
+{
+	int sequence[] = { 0x00031840 };
+	writeToPipe(pipe0, sequence, 4); // 40 18 03 00
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

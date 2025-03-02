@@ -29,6 +29,7 @@ public:
 	void setRightEye(int offset);
 	void nextProfile();
 	void refresh();
+	void clear();
 	NvAPI_Status getCurrentResolution_NVIDIA();
 
 	float x_offset;

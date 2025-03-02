@@ -220,6 +220,7 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 		exit(-1);
 	}
 
+	g_shutterGlasses.clear();
 	g_shutterGlasses.setLeftEye((int)0xffff0000);
 
 	return S_OK;
@@ -717,6 +718,8 @@ void RenderFrame()
 		Render();
 	}
 	g_pSwapChain->Present(1, 0);
+
+	g_shutterGlasses.clear();
 
 	g_shutterGlasses.setRightEye((int)0xffff0000);
 	//g_shutterGlasses.setLeftEye((int)0xffff0000);
