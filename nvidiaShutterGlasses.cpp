@@ -397,6 +397,9 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	// This seems to work for zeroed out NV_TIMING_INPUT.
 	// This is what we want- current timings that are active, not hypothetical variants
 	// that might be enabled someday.
+	// However, the resolution does not change from the native spec, when changing to 
+	// other resolutions.
+	
 	NV_TIMING timing = {};
 	NV_TIMING_INPUT current = { 0 };
 	current.version = NV_TIMING_INPUT_VER;
@@ -414,6 +417,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << std::endl;
 	vs_out << "Resolution: " << timing.HVisible << " x " << timing.VVisible << std::endl;
 	vs_out << "Vertical total pixels: " << timing.VTotal << std::endl;
+	vs_out << "----------------------" << std::endl;
 
 	//if (timing.TimingFlags & NV_TIMING_FLAGS_INTERLACED)
 	//	vs_out << "Scan Type: Interlaced" << std::endl;
@@ -423,6 +427,27 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	//if (timing.TimingFlags & NV_TIMING_FLAGS_PREFERRED)
 	//	vs_out << "Status: Preferred Timing" << std::endl;
 	OutputDebugStringA(vs_out.str().c_str());
+
+	// Try to set a new timing for the monitor so that LightBoost will turn on.
+	NV_CUSTOM_DISPLAY lightboost = { 0 };
+	lightboost.version = NV_CUSTOM_DISPLAY_VER;
+	lightboost.timing = timing;
+	lightboost.srcPartition = { 0.0f, 0.0f, 1.0f, 1.0f };
+	lightboost.width = 2560;
+	lightboost.height = 1440;
+	lightboost.xRatio = 1.0f;
+	lightboost.yRatio = 1.0f;
+	lightboost.depth = 32;
+
+	//status = NvAPI_DISP_TryCustomDisplay(&displayIds[0].displayId, 1, &lightboost);
+	if (status != NVAPI_OK)
+	{
+		vs_out << "Failed to set LightBoost timing parameters" << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		return status;
+	}
+
+	//status = NvAPI_DISP_RevertCustomDisplayTrial(&displayIds[0].displayId, 1);
 
 	NvAPI_Unload();
 
