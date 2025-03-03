@@ -62,6 +62,7 @@
 #include "nvapi.h"
 #include "Timer.h"
 #include "nvidiaShutterGlasses.h"
+#include <thread>
 
 using namespace DirectX;
 
@@ -73,6 +74,7 @@ HRESULT InitDevice();
 void CleanupDevice();
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void RenderFrame();
+void Render();
 
 
 //--------------------------------------------------------------------------------------
@@ -126,6 +128,8 @@ double								g_lastFrame = 0;
 std::ostringstream					g_out;
 
 NvidiaShutterGlasses				g_shutterGlasses;
+std::atomic<bool>					g_running(false);
+std::thread							g_renderThread;
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing 
@@ -144,6 +148,12 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		CleanupDevice();
 		return 0;
 	}
+
+	// Start a rendering subthread, so that rendering is off the main app thread,
+	// and thus UI things like dragging the window don't block drawing.
+	g_running = true;
+	g_renderThread = std::thread(Render);
+
 
 	// Main message loop
 	MSG msg = { 0 };
@@ -164,6 +174,13 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		{
 			RenderFrame();
 		}
+	}
+
+	// Cleanly stop drawing thread.
+	g_running = false;
+	if (g_renderThread.joinable())
+	{
+		g_renderThread.join();		// Wait for it to cleanly exit.
 	}
 
 	CleanupDevice();
@@ -587,7 +604,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 //--------------------------------------------------------------------------------------
 // Render current image, eye independent.  
 //--------------------------------------------------------------------------------------
-void Render()
+void DrawCube()
 {
 	//
 	// Clear the back buffer
@@ -715,7 +732,7 @@ void RenderFrame()
 		cb.mProjection = XMMatrixTranspose(cb.mProjection);
 		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-		Render();
+		DrawCube();
 	}
 	g_pSwapChain->Present(1, 0);
 
@@ -746,5 +763,15 @@ void RenderFrame()
 
 		g_lastFrame = currentFrame;
 		out_limit--;
+	}
+//--------------------------------------------------------------------------------------
+// Render call from the subthread.
+//--------------------------------------------------------------------------------------
+void Render()
+{
+	while (g_running)
+	{
+		Sleep(10);
+		RenderFrame();
 	}
 }
