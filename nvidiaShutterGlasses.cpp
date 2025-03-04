@@ -207,8 +207,21 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 		valid_w_us.push_back(4735.0f);
 	}
 
+	// This sequence is here to wake up a sleeping emitter. If we immediately jump
+	// in and start hitting the emitter, we get a BSOD, apparently because the USB
+	// pipe is not running correctly.  The delay itself is not sufficient, the pipe
+	// is somehow broken.  So rather than do anything heroic, we'll just close it.
+	HANDLE wake;
+	wake = openUsbDeviceFile("PIPE01");
+	Sleep(1000);
+	CloseHandle(wake);
+
+	// Actual pipes that will be used to set up and run the emitter.
 	pipe0 = openUsbDeviceFile("PIPE02");
 	pipe1 = openUsbDeviceFile("PIPE00");
+
+	// Follow the initialization that people found on the web. Sets up the timers
+	// with monitor specific timings.
 	refresh();
 }
 
