@@ -238,6 +238,8 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 	CloseHandle(pipe0);
 	CloseHandle(pipe1);
 
+	disable_LightBoost_NVIDIA();
+
 	NvAPI_Unload();
 }
 
@@ -370,12 +372,20 @@ void NvidiaShutterGlasses::nextProfile()
 //
 // The trick is to set the TotalPixels to 5 higher than it normally runs.
 // 5 extra lines in the vertical blank will tell the PG278QR to go into LightBoost mode.
+//
+// In theory this is not dangerous in terms of damaging hardware, as monitors like a
+// PG278QR will go black screen and avoid breaking. I think using the NvAPI itself adds
+// a level of safety as well, since they are pretty serious about their debugging.
+// As opposed to running external tools like CRU where you can do anything.
+// 
 
 //#include "NvAPI.h"
 //#include <adl_sdk.h>
 
 // Get current display format and timing for an NVidia display.
 // Output details to VS Output for sanity checks.
+// If we determine it's a PG278QR running at 120Hz, we'll set flag as OK.
+
 NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 {
 	NvAPI_Status status;
@@ -414,6 +424,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 		return status;
 	}
 
+
 	// This seems to work for zeroed out NV_TIMING_INPUT.
 	// This is what we want- current timings that are active, not hypothetical variants
 	// that might be enabled someday. 
@@ -448,6 +459,45 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	//	vs_out << "Status: Preferred Timing" << std::endl;
 	OutputDebugStringA(vs_out.str().c_str());
 
+
+	// If we are running a known good monitor, let's mark it valid and thus
+	// enable the enable_LightBoost_NVIDIA call.
+	if (timing.etc.rrx1k == 119998 && timing.VTotal == 1525 && timing.HVisible == 2560 && timing.VVisible == 1440)
+	{
+		PrimaryDisplayID = displayIds[0].displayId;
+	}
+
+	return NVAPI_OK;
+}
+
+// The goal here will be to enable LightBoost upon request, and disable it when the
+// object is destroyed. Currently only going to enable for a PG278QR, a monitor I can
+// personally test. And only for 120Hz mode. If the monitor is not already running
+// in that state, we won't try.
+//
+// This might not be the right way to do this. We could for example add a custom
+// display resolution that is persistent, and activate it. It's just notable that
+// using this approach gives the same monitor flash/setup as when 3D Vision is 
+// activated in a game.
+
+NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
+{
+	NvAPI_Status status;
+
+	if (PrimaryDisplayID == 0xDEADBEEF)
+		return NVAPI_NVIDIA_DISPLAY_NOT_FOUND;
+
+	NV_TIMING timing = { 0 };
+	NV_TIMING_INPUT current = { 0 };
+	current.version = NV_TIMING_INPUT_VER;
+	status = NvAPI_DISP_GetTiming(PrimaryDisplayID, &current, &timing);
+	if (status != NVAPI_OK)
+	{
+		vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		return status;
+	}
+
 	// Try to set a new timing for the monitor so that LightBoost will turn on.
 	NV_CUSTOM_DISPLAY lightboost = { 0 };
 	lightboost.version = NV_CUSTOM_DISPLAY_VER;
@@ -459,19 +509,33 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	lightboost.yRatio = 1.0f;
 	lightboost.depth = 32;
 
-	//status = NvAPI_DISP_TryCustomDisplay(&displayIds[0].displayId, 1, &lightboost);
+	// The magic trick. Bump the VTotal by 5, and voila- LightBoost is on.
+	if (lightboost.timing.VTotal == 1525)
+		lightboost.timing.VTotal += 5;
+
+	status = NvAPI_DISP_TryCustomDisplay(&PrimaryDisplayID, 1, &lightboost);
 	if (status != NVAPI_OK)
 	{
-		vs_out << "Failed to set LightBoost timing parameters" << std::endl;
+		vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << std::endl;
 		OutputDebugStringA(vs_out.str().c_str());
 		return status;
 	}
 
-	//status = NvAPI_DISP_RevertCustomDisplayTrial(&displayIds[0].displayId, 1);
+	return status;
+}
 
-	NvAPI_Unload();
+// Restore the previous setting upon exit.
 
-	return NVAPI_OK;
+NvAPI_Status NvidiaShutterGlasses::disable_LightBoost_NVIDIA()
+{
+	NvAPI_Status status;
+
+	if (PrimaryDisplayID == 0xDEADBEEF)
+		return NVAPI_NVIDIA_DISPLAY_NOT_FOUND;
+
+	status = NvAPI_DISP_RevertCustomDisplayTrial(&PrimaryDisplayID, 1);
+
+	return status;
 }
 
 //void GetCurrentResolution_AMD()

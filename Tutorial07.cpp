@@ -268,14 +268,29 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 	g_Timer.Start();
 	g_out << std::fixed << std::setprecision(2);
 
-	NvAPI_Status test = g_shutterGlasses.getCurrentResolution_NVIDIA();
-	if (test != NVAPI_OK)
+	NvAPI_Status status;
 	{
-		g_out << "!!! Fail !!!\n"
-			<< " Unable to fetch current resolution and timing. \n"
-			<< "!!! Fail !!!\n";
-		OutputDebugStringA(g_out.str().c_str());
-		exit(-1);
+		status = g_shutterGlasses.getCurrentResolution_NVIDIA();
+		if (status != NVAPI_OK)
+		{
+			g_out << "!!! Fail !!!\n"
+				<< " Unable to fetch current resolution and timing. \n"
+				<< "!!! Fail !!!\n";
+			OutputDebugStringA(g_out.str().c_str());
+			exit(-1);
+		}
+
+		// Since we could get the resolution successfully, let's go ahead and enable
+		// LightBoost.
+		status = g_shutterGlasses.enable_LightBoost_NVIDIA();
+		if (status != NVAPI_OK)
+		{
+			g_out << "!!! Fail !!!\n"
+				<< " Unable to enable timing for LightBoost. \n"
+				<< "!!! Fail !!!\n";
+			OutputDebugStringA(g_out.str().c_str());
+			exit(-1);
+		}
 	}
 
 	// Sadly, the Clear does not reset the internal timer, and so we can still get

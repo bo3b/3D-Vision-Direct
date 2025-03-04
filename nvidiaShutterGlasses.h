@@ -30,7 +30,10 @@ public:
 	void nextProfile();
 	void refresh();
 	void clear();
+
 	NvAPI_Status getCurrentResolution_NVIDIA();
+	NvAPI_Status enable_LightBoost_NVIDIA();
+	NvAPI_Status disable_LightBoost_NVIDIA();
 
 	float x_offset;
 	float y_offset;
@@ -47,6 +50,8 @@ private:
 	std::vector<float> valid_w_us;
 	int currentProfile;
 	HANDLE pipe0, pipe1;
+
+	NvU32 PrimaryDisplayID = 0xDEADBEEF;
 
 	std::ostringstream vs_out;
 };
