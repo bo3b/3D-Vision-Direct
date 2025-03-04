@@ -136,6 +136,14 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 	, y_offset(0.0f)
 	, w_offset(0.0f)
 {
+	NvAPI_Status status = NvAPI_Initialize();
+	if (status != NVAPI_OK)
+	{
+		vs_out << "!!! NvAPI Initialization failed" << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		// TODO: force exception, save bool, something?
+	}
+
 	/*
 	ifstream fin("validRefreshRates.ini");
 	if (fin.is_open())
@@ -229,6 +237,8 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 {
 	CloseHandle(pipe0);
 	CloseHandle(pipe1);
+
+	NvAPI_Unload();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -369,14 +379,6 @@ void NvidiaShutterGlasses::nextProfile()
 NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 {
 	NvAPI_Status status;
-
-	status = NvAPI_Initialize();
-	if (status != NVAPI_OK) 
-	{
-		vs_out << "!!! NvAPI Initialization failed" << std::endl;
-		OutputDebugStringA(vs_out.str().c_str());
-		return status;
-	}
 
 	// We only can expect to use primary display?
 	// TODO: seems like we could allow syncing on an alternate display.
