@@ -46,6 +46,52 @@
 //	The sample already draws both eyes independently, instead of going to
 //	DirectMode buffers, we'll do a Present for each eye, and tick the 
 //	emitter after each to swap eyes. 
+// 
+// Bo3b: 3-3-25
+//   Adding some notes regarding the use of the NVidia emitter from USB directly.
+//   Using the FlintEastwood/3DVisionActivator project code, I've got this working
+//   with the NVidia emitter.  The emitter is a USB device, and the protocol is
+//   documented in the libnvstusb project. So this code setup now works to drive
+//	 the NVidia emitter directly, without the need for the NVidia 3D Vision driver.
+//   This is running nicely, and by setting the monitor into LightBoost mode, I can
+//   get the full 3D Vision experience without the NVidia driver *at all*.
+//   
+//   However, it has the glitch of eye-swaps upon an alt-tab out of the app. Tried
+//   lots of variants, but there doesn't seem to be any way to get it to stop that.
+//   Using an independent thread did not solve it, which is surprising. It's not 
+//   clear how the NVidia driver avoids this, but I don't recall it ever having
+//   eye-swaps. Non-zero chance we can fix this by having dual offscreen buffers
+//   that are always the definitive 'eyes' being shown, but that's for the real
+//   variant in geo-11.
+// 
+//   There is some sort of internal timer to the emitter, that runs even if it is
+//   not getting setEye commands.  It seems to be some mechanism to keep it swapping
+//   eyes, even if there are glitches and frames are missed. So for example, we can
+//   just hit setLeftEye at the top of the loop, and it will auto-swap to right during
+//   a given frame, even with no call. This runs for at least 6 frames, and maybe more.
+//	 There is an auto-timeout of some form, where if does not get any AA setEye commands
+//   it will stop running and turn off the bright green and infra-red to the glasses.
+// 
+//   It's not at all clear why we get eye swaps, especially because I am sure to always
+//   call setLeftEye before drawing left eye data. So it also does not respect the
+//   setEye command, and uses it as a way to resync it's timer to avoid drift, but 
+//   does not actually immediately switch eyes.  There is the $40 clear command, but
+//   that also seems to do nothing. It does not restart the device in proper mode. I
+//   removed the 'Read' commands, because I don't think we are about the front button
+//   and scroll wheel at all. And the FlintEastwood repo was getting blue-screens 
+//   from that. 
+// 
+//   Best I can tell from testing is that during the alt-tab, we lose the second call
+//   to Present(1,0), for the right eye. It's not logged, and there is no way for that
+//   function to exit early. Somehow it's being killed, and not just returning an error,
+//   because there are no error results. If we can figure out why it's killed, we can
+//   presumably fix the eye-swaps.  
+//	 Don't know. I'm leaving it broken for now, because this is valuable even as it
+//   stands, and I want to integrate this to geo-11.
+// 
+//   Still does the bluescreen crash when accessed without waking. So it's not the
+//   reading aspect, it's any access. We thus need a clean way to wake it before
+//   using.
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
