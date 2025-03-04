@@ -27,8 +27,8 @@ public:
 			DebugBreak();
 		
 		LONGLONG out = (currentTime.QuadPart - startTime.QuadPart) * 1'000'000.0 / frequency.QuadPart;
-		if (out < lastOut)
-			DebugBreak();
+		//if (out < lastOut)
+		//	DebugBreak();
 		lastOut = out;
 
 		return (double)out;

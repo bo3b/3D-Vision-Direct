@@ -188,11 +188,11 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
 
-	//if (FAILED(InitDevice()))
-	//{
-	//	CleanupDevice();
-	//	return 0;
-	//}
+	if (FAILED(InitDevice()))
+	{
+		CleanupDevice();
+		return 0;
+	}
 
 	// Start a rendering subthread, so that rendering is off the main app thread,
 	// and thus UI things like dragging the window don't block drawing.
@@ -215,13 +215,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 				PostQuitMessage(0);
 			}
 		}
-		else
-		{
-			RenderFrame();
-		}
 	}
 
-	// Cleanly stop drawing thread.
+	// Cleanly stop drawing thread upon exit
 	g_running = false;
 	if (g_renderThread.joinable())
 	{
@@ -282,8 +278,10 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 		exit(-1);
 	}
 
-	g_shutterGlasses.clear();
-	g_shutterGlasses.setLeftEye((int)0xffff0000);
+	// Sadly, the Clear does not reset the internal timer, and so we can still get
+	// eye-swaps on the alt-tab. But we want to always at least start with leftEye.
+	//g_shutterGlasses.clear();
+	//g_shutterGlasses.setLeftEye((int)0xffff0000);
 
 	return S_OK;
 }
@@ -719,6 +717,8 @@ int out_limit = 4;
 //--------------------------------------------------------------------------------------
 void RenderFrame()
 {
+	HRESULT hr;
+
 	//
 	// Rotate cube around the origin
 	//
@@ -745,6 +745,11 @@ void RenderFrame()
 	//stall += 10;
 	//SleepMicroseconds(stall);
 
+	// Specifically set the LeftEye as active, not just toggle. This seems
+	// to help get proper sync when the app is active, but doesn't help with
+	// alt-tab eye swaps.
+	g_shutterGlasses.setLeftEye((int)0xffff0000);
+	double leftEyeStart = g_Timer.GetElapsedMicroseconds();
 
 
 	//
@@ -754,33 +759,28 @@ void RenderFrame()
 	// The _41 parameter is the X translation after the perspective divide.
 	// This sequence works to handle both convergence and separation hot keys properly.
 	//
-	double leftEyeStart = g_Timer.GetElapsedMicroseconds();
-	//{
-	//	cb.mWorld = XMMatrixTranspose(g_World);
-	//	cb.mView = XMMatrixTranspose(g_View);
+	{
+		cb.mWorld = XMMatrixTranspose(g_World);
+		cb.mView = XMMatrixTranspose(g_View);
 
-	//	cb.mProjection = g_Projection;
-	//	cb.mProjection._31 -= separation;
-	//	cb.mProjection._41 = convergence;
-	//	cb.mProjection = XMMatrixTranspose(cb.mProjection);
-	//	g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+		cb.mProjection = g_Projection;
+		cb.mProjection._31 -= separation;
+		cb.mProjection._41 = convergence;
+		cb.mProjection = XMMatrixTranspose(cb.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-	//	DrawCube();
-	//}
-	//g_shutterGlasses.setLeftEye((int)0xffff0000);
-	g_out << "SetLefEye    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	OutputDebugStringA(g_out.str().c_str());
-	//HRESULT test = g_pSwapChain->Present(1, 0);
-	//if (FAILED(test))
-	//{
-	//	g_out << "Present failed: " << test << std::endl;
-	//	OutputDebugStringA(g_out.str().c_str());
-	//	DebugBreak();
-	//}
-	g_out << "  Present    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	OutputDebugStringA(g_out.str().c_str());
+		DrawCube();
+	}
+	hr = g_pSwapChain->Present(1, 0);
+	if (FAILED(hr))
+	{
+		g_out << "Present failed: " << hr << std::endl;
+		OutputDebugStringA(g_out.str().c_str());
+		DebugBreak();
+	}
+	//g_out << "  Present    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
+	//OutputDebugStringA(g_out.str().c_str());
 
-	// Specifically set the LeftEye as active, not just toggle.
 
 	double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
 	if (leftEyeElapsed > 18.0f)
@@ -797,36 +797,31 @@ void RenderFrame()
 	}
 	
 
+	// After eye-swaps, this surprisingly does nothing.
+	g_shutterGlasses.setRightEye((int)0xffff0000);
 	double rightEyeStart = g_Timer.GetElapsedMicroseconds();
-	//{
-	//	cb.mWorld = XMMatrixTranspose(g_World);
-	//	cb.mView = XMMatrixTranspose(g_View);
 
-	//	cb.mProjection = g_Projection;
-	//	cb.mProjection._31 += separation;
-	//	cb.mProjection._41 = -convergence;
-	//	cb.mProjection = XMMatrixTranspose(cb.mProjection);
-	//	g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+	{
+		cb.mWorld = XMMatrixTranspose(g_World);
+		cb.mView = XMMatrixTranspose(g_View);
+
+		cb.mProjection = g_Projection;
+		cb.mProjection._31 += separation;
+		cb.mProjection._41 = -convergence;
+		cb.mProjection = XMMatrixTranspose(cb.mProjection);
+		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
 		DrawCube();
-	//}
-	//g_shutterGlasses.setRightEye((int)0xffff0000);
-	g_out << "SetRightEye  time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	OutputDebugStringA(g_out.str().c_str());
-	//test = g_pSwapChain->Present(1, 0);
-	//if (FAILED(test))
-	//{
-	//	g_out << "Present failed: " << test << std::endl;
-	//	OutputDebugStringA(g_out.str().c_str());
-	//	DebugBreak();
-	//}
-	g_out << "   Present   time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	OutputDebugStringA(g_out.str().c_str());
-
-	//g_shutterGlasses.clear();
-
-	//g_shutterGlasses.setRightEye((int)0xffff0000);
-	//g_shutterGlasses.setLeftEye((int)0xffff0000);
+	}
+	hr = g_pSwapChain->Present(1, 0);
+	if (FAILED(hr))
+	{
+		g_out << "Present failed: " << hr << std::endl;
+		OutputDebugStringA(g_out.str().c_str());
+		DebugBreak();
+	}
+	//g_out << "   Present   time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
+	//OutputDebugStringA(g_out.str().c_str());
 
 	double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
 	if (rightEyeElapsed > 18.0f)
@@ -848,28 +843,18 @@ void RenderFrame()
 		g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
 		OutputDebugStringA(g_out.str().c_str());
 
-		g_lastFrame = currentFrame;
 		out_limit--;
 	}
-
-	LARGE_INTEGER now;
-	LARGE_INTEGER freq;
-	QueryPerformanceCounter(&now);
-	QueryPerformanceFrequency(&freq);
-	g_out << "... " << now.QuadPart << " ... " << freq.QuadPart << " ... " << GetTickCount64() << std::endl;
-
-	Sleep(10);
+	g_lastFrame = currentFrame;
 }
 
-
 //--------------------------------------------------------------------------------------
-// Render call from the subthread.
+// // Render call from the subthread.
 //--------------------------------------------------------------------------------------
 void Render()
 {
 	while (g_running)
 	{
-		Sleep(10);
 		RenderFrame();
 	}
 }
