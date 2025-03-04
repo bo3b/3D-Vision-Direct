@@ -26,12 +26,12 @@ public:
 		if (testFrequency.QuadPart != frequency.QuadPart)
 			DebugBreak();
 		
-		LONGLONG out = (currentTime.QuadPart - startTime.QuadPart) * 1'000'000.0 / frequency.QuadPart;
+		double out = (currentTime.QuadPart - startTime.QuadPart) * 1'000'000.0 / frequency.QuadPart;
 		//if (out < lastOut)
 		//	DebugBreak();
 		lastOut = out;
 
-		return (double)out;
+		return out;
 	}
 
 private:
@@ -40,5 +40,5 @@ private:
 	LARGE_INTEGER frequency;  // Ticks per second
 	LARGE_INTEGER startTime;  // Start timestamp
 	LARGE_INTEGER lastCallTime = { 0 };
-	LONGLONG lastOut = 0;
+	double lastOut = 0;
 };
