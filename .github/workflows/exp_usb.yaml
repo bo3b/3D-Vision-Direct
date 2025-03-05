@@ -1,0 +1,35 @@
+name: Build and Release exp_usb
+
+on:
+  push:
+    branches:
+      - exp_usb
+  pull_request:
+    branches:
+      - exp_usb
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore 3D-Vision-Direct.sln
+
+      - name: Build project
+        run: msbuild 3D-Vision-Direct.sln /p:Configuration=Release /p:Platform=x64
+
+      - name: Upload built artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3D-Vision-Direct-Build
+          path: |
+            x64/Release/
+          if-no-files-found: error
