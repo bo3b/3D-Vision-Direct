@@ -185,6 +185,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
+	// Before we create DX11 and windows, enable LightBoost.
+	EnableLightBoost();
+
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
 
@@ -198,6 +201,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	// and thus UI things like dragging the window don't block drawing.
 	g_running = true;
 	g_renderThread = std::thread(Render);
+
+	// Now that we are drawing alternating perspective stereo, let's see it.
+	StartGlasses();
 
 
 	// Main message loop
@@ -268,8 +274,13 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 	g_Timer.Start();
 	g_out << std::fixed << std::setprecision(2);
 
-	NvAPI_Status status;
+		return S_OK;
+}
+
+void EnableLightBoost()
 	{
+	NvAPI_Status status;
+
 		status = g_shutterGlasses.getCurrentResolution_NVIDIA();
 		if (status != NVAPI_OK)
 		{
@@ -293,12 +304,14 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
 		}
 	}
 
-	// Sadly, the Clear does not reset the internal timer, and so we can still get
-	// eye-swaps on the alt-tab. But we want to always at least start with leftEye.
-	//g_shutterGlasses.clear();
-	//g_shutterGlasses.setLeftEye((int)0xffff0000);
+void StartGlasses()
+{
+	// Start timers and initialize the emitter timing values.
+	g_shutterGlasses.WakeEmitter();
+	g_shutterGlasses.refresh();
 
-	return S_OK;
+	// Start with left eye open.
+	g_shutterGlasses.setLeftEye((int)0xffff0000);
 }
 
 
@@ -760,10 +773,13 @@ void RenderFrame()
 	//stall += 10;
 	//SleepMicroseconds(stall);
 
+
+
+	// <----------------------- Left Eye -------------------------------
+	//
 	// Specifically set the LeftEye as active, not just toggle. This seems
 	// to help get proper sync when the app is active, but doesn't help with
 	// alt-tab eye swaps.
-	g_shutterGlasses.setLeftEye((int)0xffff0000);
 	double leftEyeStart = g_Timer.GetElapsedMicroseconds();
 
 
@@ -787,15 +803,13 @@ void RenderFrame()
 		DrawCube();
 	}
 	hr = g_pSwapChain->Present(1, 0);
+	g_shutterGlasses.setLeftEye((int)0xffff0000);
 	if (FAILED(hr))
 	{
 		g_out << "Present failed: " << hr << std::endl;
 		OutputDebugStringA(g_out.str().c_str());
 		DebugBreak();
 	}
-	//g_out << "  Present    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	//OutputDebugStringA(g_out.str().c_str());
-
 
 	double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
 	if (leftEyeElapsed > 18.0f)
@@ -811,9 +825,10 @@ void RenderFrame()
 		OutputDebugStringA(g_out.str().c_str());
 	}
 	
-
+	// <----------------------- Right Eye -------------------------------
+	// 
 	// After eye-swaps, this surprisingly does nothing.
-	g_shutterGlasses.setRightEye((int)0xffff0000);
+	//g_shutterGlasses.toggleEyes((int)0xffff0000);
 	double rightEyeStart = g_Timer.GetElapsedMicroseconds();
 
 	{
@@ -829,14 +844,13 @@ void RenderFrame()
 		DrawCube();
 	}
 	hr = g_pSwapChain->Present(1, 0);
+	g_shutterGlasses.setRightEye((int)0xffff0000);
 	if (FAILED(hr))
 	{
 		g_out << "Present failed: " << hr << std::endl;
 		OutputDebugStringA(g_out.str().c_str());
 		DebugBreak();
 	}
-	//g_out << "   Present   time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << std::endl;
-	//OutputDebugStringA(g_out.str().c_str());
 
 	double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
 	if (rightEyeElapsed > 18.0f)
