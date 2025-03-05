@@ -214,7 +214,13 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 		valid_z_us.push_back(8333.34f);
 		valid_w_us.push_back(4735.0f);
 	}
+}
 
+// Push this into a specific routine, so we can specify the actual timing, instead
+// of being in the constructor.
+
+void NvidiaShutterGlasses::WakeEmitter()
+{
 	// This sequence is here to wake up a sleeping emitter. If we immediately jump
 	// in and start hitting the emitter, we get a BSOD, apparently because the USB
 	// pipe is not running correctly.  The delay itself is not sufficient, the pipe
@@ -223,14 +229,11 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 	wake = openUsbDeviceFile("PIPE01");
 	Sleep(1000);
 	CloseHandle(wake);
+	Sleep(3500);
 
 	// Actual pipes that will be used to set up and run the emitter.
 	pipe0 = openUsbDeviceFile("PIPE02");
 	pipe1 = openUsbDeviceFile("PIPE00");
-
-	// Follow the initialization that people found on the web. Sets up the timers
-	// with monitor specific timings.
-	refresh();
 }
 
 NvidiaShutterGlasses::~NvidiaShutterGlasses()
@@ -444,10 +447,11 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 
 	vs_out << "Display Timing Details:" << std::endl;
 	vs_out << "----------------------" << std::endl;
-	vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << std::endl;
 	vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << std::endl;
+	vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << std::endl;
+	vs_out << "** Pixel Clock: " << timing.pclk << std::endl;
 	vs_out << "Resolution: " << timing.HVisible << " x " << timing.VVisible << std::endl;
-	vs_out << "Vertical total pixels: " << timing.VTotal << std::endl;
+	vs_out << "** Vertical total pixels: " << timing.VTotal << "  Horizontal total pixels: "<< timing.HTotal << std::endl;
 	vs_out << "----------------------" << std::endl;
 
 	//if (timing.TimingFlags & NV_TIMING_FLAGS_INTERLACED)
@@ -501,17 +505,32 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 	// Try to set a new timing for the monitor so that LightBoost will turn on.
 	NV_CUSTOM_DISPLAY lightboost = { 0 };
 	lightboost.version = NV_CUSTOM_DISPLAY_VER;
-	lightboost.timing = timing;
+	lightboost.timing = timing;						// Copy everything from current for safety.
+
 	lightboost.srcPartition = { 0.0f, 0.0f, 1.0f, 1.0f };
 	lightboost.width = 2560;
 	lightboost.height = 1440;
+	lightboost.colorFormat = NV_FORMAT_A8R8G8B8;	// means 32 bit color
 	lightboost.xRatio = 1.0f;
 	lightboost.yRatio = 1.0f;
 	lightboost.depth = 32;
 
 	// The magic trick. Bump the VTotal by 5, and voila- LightBoost is on.
+	// Also key is bumping the pixel clock to match the longer frame. Without
+	// this the glasses were ever slightly out of sync with monitor. 
 	if (lightboost.timing.VTotal == 1525)
-		lightboost.timing.VTotal += 5;
+	{
+		NvU16 standard_vtotal = lightboost.timing.VTotal;
+		NvU32 standard_pclk = lightboost.timing.pclk;
+
+		lightboost.timing.VTotal = standard_vtotal + 5;
+		lightboost.timing.pclk = standard_pclk * lightboost.timing.VTotal / standard_vtotal;	// deliberately no floats
+
+		vs_out << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << std::endl;
+		vs_out << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << std::endl;
+		vs_out << "----------------------" << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+	}
 
 	status = NvAPI_DISP_TryCustomDisplay(&PrimaryDisplayID, 1, &lightboost);
 	if (status != NVAPI_OK)
@@ -520,6 +539,9 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 		OutputDebugStringA(vs_out.str().c_str());
 		return status;
 	}
+
+	if(post.VTotal != 1530)
+		DebugBreak();
 
 	return status;
 }

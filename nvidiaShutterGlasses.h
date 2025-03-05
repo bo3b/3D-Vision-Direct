@@ -22,6 +22,7 @@ class NvidiaShutterGlasses : public ShutterGlasses
 {
 public:
 	NvidiaShutterGlasses();
+	void WakeEmitter();
 	~NvidiaShutterGlasses();
 
 	void toggleEyes(int offset);
