@@ -20,16 +20,13 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Restore NuGet packages
-        run: nuget restore 3D-Vision-Direct.sln
-
       - name: Build project
-        run: msbuild 3D-Vision-Direct.sln /p:Configuration=Release /p:Platform=x64
+        run: msbuild Tutorial07_2012.sln /p:Configuration=Release /p:Platform=x64
 
       - name: Upload built artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 3D-Vision-Direct-Build
+          name: exp_usb Build
           path: |
             x64/Release/
           if-no-files-found: error
