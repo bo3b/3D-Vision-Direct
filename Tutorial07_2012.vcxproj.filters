@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Tutorial07.cpp" />
+    <ClCompile Include="nvidiaShutterGlasses.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CLInclude Include="resource.h">
@@ -47,6 +48,9 @@
     <ClInclude Include="nvapi_lite_surround.h">
       <Filter>NvAPI</Filter>
     </ClInclude>
+    <ClInclude Include="nvidiaShutterGlasses.h" />
+    <ClInclude Include="shutterGlasses.h" />
+    <ClInclude Include="Timer.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">
@@ -66,5 +70,8 @@
     <Library Include="nvapi64.lib">
       <Filter>NvAPI</Filter>
     </Library>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="MonitorTimings.ini" />
   </ItemGroup>
 </Project>

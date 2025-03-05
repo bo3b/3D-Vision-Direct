@@ -540,9 +540,6 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 		return status;
 	}
 
-	if(post.VTotal != 1530)
-		DebugBreak();
-
 	return status;
 }
 
