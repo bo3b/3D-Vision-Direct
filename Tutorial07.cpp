@@ -189,6 +189,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 	// Before we create DX11 and windows, enable LightBoost.
 	EnableLightBoost();
+	// Safely Wake and Initialize the timing of the emitter.
+	StartGlasses();
 
 	if (FAILED(InitWindow(hInstance, nCmdShow)))
 		return 0;
@@ -203,9 +205,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 	// and thus UI things like dragging the window don't block drawing.
 	g_running = true;
 	g_renderThread = std::thread(Render);
-
-	// Now that we are drawing alternating perspective stereo, let's see it.
-	StartGlasses();
 
 
 	// Main message loop
