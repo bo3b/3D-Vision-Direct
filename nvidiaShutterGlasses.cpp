@@ -449,7 +449,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	//	return false;
 	//}
 
-	NvPhysicalGpuHandle gpuHandles[NVAPI_MAX_PHYSICAL_GPUS] = { 0 };
+	NvPhysicalGpuHandle gpuHandles[NVAPI_MAX_PHYSICAL_GPUS] = {};
 	NvU32 gpuCount = 0;
 	status = NvAPI_EnumPhysicalGPUs(gpuHandles, &gpuCount);
 	if (status != NVAPI_OK) 
@@ -461,7 +461,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	}
 
 	// Get all display IDs connected to the first GPU
-	NV_GPU_DISPLAYIDS displayIds[NVAPI_MAX_DISPLAYS] = { 0 };
+	NV_GPU_DISPLAYIDS displayIds[NVAPI_MAX_DISPLAYS] = {};
 	displayIds->version = NV_GPU_DISPLAYIDS_VER2;
 	NvU32 displayCount = 1;		// Only do first one for now.
 	status = NvAPI_GPU_GetConnectedDisplayIds(gpuHandles[0], displayIds, &displayCount, 0);
@@ -481,7 +481,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 	// other resolutions.
 	
 	NV_TIMING timing = {};
-	NV_TIMING_INPUT current = { 0 };
+	NV_TIMING_INPUT current = {};
 	current.version = NV_TIMING_INPUT_VER;
 	status = NvAPI_DISP_GetTiming(displayIds[0].displayId, &current, &timing);
 	if (status != NVAPI_OK) 
@@ -539,8 +539,8 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 
 	// We already know it's the proper hardware, but let's fetch 'timing' again
 	// so that we can be certain all parameters are initialized properly.
-	NV_TIMING timing = { 0 };
-	NV_TIMING_INPUT current = { 0 };
+	NV_TIMING timing = {};
+	NV_TIMING_INPUT current = {};
 	current.version = NV_TIMING_INPUT_VER;
 	status = NvAPI_DISP_GetTiming(PrimaryDisplayID, &current, &timing);
 	if (status != NVAPI_OK)
@@ -551,7 +551,7 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 	}
 
 	// Try to set a new timing for the monitor so that LightBoost will turn on.
-	NV_CUSTOM_DISPLAY lightboost = { 0 };
+	NV_CUSTOM_DISPLAY lightboost = {};
 	lightboost.version = NV_CUSTOM_DISPLAY_VER;
 	lightboost.timing = timing;						// Copy everything from current for safety.
 

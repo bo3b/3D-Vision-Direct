@@ -39,6 +39,6 @@ private:
 
 	LARGE_INTEGER frequency;  // Ticks per second
 	LARGE_INTEGER startTime;  // Start timestamp
-	LARGE_INTEGER lastCallTime = { 0 };
+	LARGE_INTEGER lastCallTime = {};
 	double lastOut = 0;
 };
