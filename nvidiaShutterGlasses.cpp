@@ -372,16 +372,16 @@ void NvidiaShutterGlasses::clear()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::toggleEyes(int offset)
+void NvidiaShutterGlasses::toggleEyes()
 {
-	int sequence[]  = { isLeftEye() ? 0x0000feaa : 0x0000ffaa, offset };
+	uint32_t sequence[]  = { isLeftEye() ? 0x0000feaa : 0x0000ffaa, 0xffff0000 };	// aa ff/fe 00 00  00 00 ff ff 
 	writeToPipe(pipe_usb_swaps, sequence, 8);
 	ShutterGlasses::toggleEyes();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::setLeftEye(int offset)
+void NvidiaShutterGlasses::setLeftEye()
 {
 	int sequence[] = { 0x0000feaa, offset };
 	writeToPipe(pipe_usb_swaps, sequence, 8);
@@ -390,7 +390,7 @@ void NvidiaShutterGlasses::setLeftEye(int offset)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::setRightEye(int offset)
+void NvidiaShutterGlasses::setRightEye()
 {
 	int sequence[] = { 0x0000ffaa, offset };
 	writeToPipe(pipe_usb_swaps, sequence, 8);

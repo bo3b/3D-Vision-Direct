@@ -25,9 +25,9 @@ public:
 	void WakeEmitter();
 	~NvidiaShutterGlasses();
 
-	void toggleEyes(int offset);
-	void setLeftEye(int offset);
-	void setRightEye(int offset);
+	void toggleEyes();
+	void setLeftEye();
+	void setRightEye();
 	void nextProfile();
 	void refresh();
 	void clear();

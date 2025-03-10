@@ -223,7 +223,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 			}
 			if (GetAsyncKeyState(VK_F2) & 0x8000)
 			{
-				g_shutterGlasses.toggleEyes((int)0xffff0000);
+				g_shutterGlasses.toggleEyes();
 			}
 		}
 	}
@@ -316,7 +316,7 @@ void StartGlasses()
 	g_shutterGlasses.refresh();
 
 	// Start with left eye open.
-	g_shutterGlasses.setLeftEye((int)0xffff0000);
+	g_shutterGlasses.setLeftEye();
 }
 
 
@@ -811,7 +811,7 @@ void RenderFrame()
 			DrawCube();
 		}
 		hr = g_pSwapChain->Present(1, 0);
-		g_shutterGlasses.toggleEyes((int)0xffff0000);
+		g_shutterGlasses.toggleEyes();
 		if (FAILED(hr))
 		{
 			g_out << "Present failed: " << hr << std::endl;
@@ -852,7 +852,7 @@ void RenderFrame()
 			DrawCube();
 		}
 		hr = g_pSwapChain->Present(1, 0);
-		g_shutterGlasses.toggleEyes((int)0xffff0000);
+		g_shutterGlasses.toggleEyes();
 		if (FAILED(hr))
 		{
 			g_out << "Present failed: " << hr << std::endl;
