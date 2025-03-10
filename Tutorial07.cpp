@@ -297,7 +297,7 @@ void EnableLightBoost()
 		}
 
 		// Since we could get the resolution successfully, let's go ahead and enable
-		// LightBoost.
+		// LightBoost.  We'll not error out if it fails to setup.
 		status = g_shutterGlasses.enable_LightBoost_NVIDIA();
 		if (status != NVAPI_OK)
 		{
@@ -305,7 +305,6 @@ void EnableLightBoost()
 				<< " Unable to enable timing for LightBoost. " << std::endl
 				<< "!!! Fail !!!" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
-			exit(-1);
 		}
 	}
 

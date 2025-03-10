@@ -537,6 +537,8 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 	if (PrimaryDisplayID == 0xDEADBEEF)
 		return NVAPI_NVIDIA_DISPLAY_NOT_FOUND;
 
+	// We already know it's the proper hardware, but let's fetch 'timing' again
+	// so that we can be certain all parameters are initialized properly.
 	NV_TIMING timing = { 0 };
 	NV_TIMING_INPUT current = { 0 };
 	current.version = NV_TIMING_INPUT_VER;
@@ -578,6 +580,8 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 		OutputDebugStringA(vs_out.str().c_str());
 	}
 
+	// Enable LightBoost timing. If this fails for some reason and returns an error, that is OK,
+	// we won't error out.
 	status = NvAPI_DISP_TryCustomDisplay(&PrimaryDisplayID, 1, &lightboost);
 	if (status != NVAPI_OK)
 	{
