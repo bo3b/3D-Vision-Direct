@@ -779,108 +779,124 @@ void RenderFrame()
 	//stall += 10;
 	//SleepMicroseconds(stall);
 
-
-
-	// <----------------------- Left Eye -------------------------------
-	//
-	// Specifically set the LeftEye as active, not just toggle. This seems
-	// to help get proper sync when the app is active, but doesn't help with
-	// alt-tab eye swaps.
-	double leftEyeStart = g_Timer.GetElapsedMicroseconds();
-
-
-	//
-	// Drawing same object twice, once for each eye.
-	// Eye specific setup is for the Projection matrix.
-	// The _31 parameter is the X translation for the off center Projection.
-	// The _41 parameter is the X translation after the perspective divide.
-	// This sequence works to handle both convergence and separation hot keys properly.
-	//
+	// Checking for possible fatal errors that could cause an eye swap situation.
+	// Does not seem to ever hit exception handler, which is what we'd expect.
+	try
 	{
-		cb.mWorld = XMMatrixTranspose(g_World);
-		cb.mView = XMMatrixTranspose(g_View);
 
-		cb.mProjection = g_Projection;
-		cb.mProjection._31 -= separation;
-		cb.mProjection._41 = convergence;
-		cb.mProjection = XMMatrixTranspose(cb.mProjection);
-		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+		// <----------------------- Left Eye -------------------------------
+		//
+		// Specifically set the LeftEye as active, not just toggle. This seems
+		// to help get proper sync when the app is active, but doesn't help with
+		// alt-tab eye swaps.
+		double leftEyeStart = g_Timer.GetElapsedMicroseconds();
 
-		DrawCube();
+
+		//
+		// Drawing same object twice, once for each eye.
+		// Eye specific setup is for the Projection matrix.
+		// The _31 parameter is the X translation for the off center Projection.
+		// The _41 parameter is the X translation after the perspective divide.
+		// This sequence works to handle both convergence and separation hot keys properly.
+		//
+		{
+			cb.mWorld = XMMatrixTranspose(g_World);
+			cb.mView = XMMatrixTranspose(g_View);
+
+			cb.mProjection = g_Projection;
+			cb.mProjection._31 -= separation;
+			cb.mProjection._41 = convergence;
+			cb.mProjection = XMMatrixTranspose(cb.mProjection);
+			g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+			DrawCube();
+		}
+		hr = g_pSwapChain->Present(1, 0);
+		g_shutterGlasses.toggleEyes((int)0xffff0000);
+		if (FAILED(hr))
+		{
+			g_out << "Present failed: " << hr << std::endl;
+			OutputDebugStringA(g_out.str().c_str());
+			DebugBreak();
+		}
+
+		double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
+		if (leftEyeElapsed > 18.0f)
+		{
+			g_out << "!! Left frame dropped. Eye swap.\n";
+			OutputDebugStringA(g_out.str().c_str());
+			out_limit = 2;
+			//g_shutterGlasses.refresh();	// re-init on drops
+		}
+		if (out_limit > 0)
+		{
+			g_out << "Left eye frame time:  " << leftEyeElapsed << " ms\n";
+			OutputDebugStringA(g_out.str().c_str());
+		}
+
+		// <----------------------- Right Eye -------------------------------
+		// 
+		// After eye-swaps, this surprisingly does nothing.
+		//g_shutterGlasses.toggleEyes((int)0xffff0000);
+		double rightEyeStart = g_Timer.GetElapsedMicroseconds();
+
+		{
+			cb.mWorld = XMMatrixTranspose(g_World);
+			cb.mView = XMMatrixTranspose(g_View);
+
+			cb.mProjection = g_Projection;
+			cb.mProjection._31 += separation;
+			cb.mProjection._41 = -convergence;
+			cb.mProjection = XMMatrixTranspose(cb.mProjection);
+			g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+			DrawCube();
+		}
+		hr = g_pSwapChain->Present(1, 0);
+		g_shutterGlasses.toggleEyes((int)0xffff0000);
+		if (FAILED(hr))
+		{
+			g_out << "Present failed: " << hr << std::endl;
+			OutputDebugStringA(g_out.str().c_str());
+			DebugBreak();
+		}
+
+		double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
+		if (rightEyeElapsed > 18.0f)
+		{
+			g_out << "!! Right frame dropped. Eye swap.\n";
+			OutputDebugStringA(g_out.str().c_str());
+			out_limit = 2;
+			//g_shutterGlasses.refresh();	// re-init on drops
+		}
+		if (out_limit > 0)
+		{
+			g_out << "Right eye frame time: " << rightEyeElapsed << " ms\n";
+			OutputDebugStringA(g_out.str().c_str());
+		}
+
+		double currentFrame = g_Timer.GetElapsedMicroseconds();
+		if (out_limit > 0)
+		{
+			g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
+			OutputDebugStringA(g_out.str().c_str());
+
+			out_limit--;
+		}
+		g_lastFrame = currentFrame;
 	}
-	hr = g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.toggleEyes((int)0xffff0000);
-	if (FAILED(hr))
+	catch (const std::exception& e)
 	{
-		g_out << "Present failed: " << hr << std::endl;
+		g_out << "!!!  RenderFrame exception: " << e.what() << std::endl;
 		OutputDebugStringA(g_out.str().c_str());
 		DebugBreak();
 	}
-
-	double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
-	if (leftEyeElapsed > 18.0f)
+	catch (...)
 	{
-		g_out << "!! Left frame dropped. Eye swap.\n";
-		OutputDebugStringA(g_out.str().c_str());
-		out_limit = 2;
-		//g_shutterGlasses.refresh();	// re-init on drops
-	}
-	if (out_limit > 0)
-	{
-		g_out << "Left eye frame time:  " << leftEyeElapsed << " ms\n";
-		OutputDebugStringA(g_out.str().c_str());
-	}
-	
-	// <----------------------- Right Eye -------------------------------
-	// 
-	// After eye-swaps, this surprisingly does nothing.
-	//g_shutterGlasses.toggleEyes((int)0xffff0000);
-	double rightEyeStart = g_Timer.GetElapsedMicroseconds();
-
-	{
-		cb.mWorld = XMMatrixTranspose(g_World);
-		cb.mView = XMMatrixTranspose(g_View);
-
-		cb.mProjection = g_Projection;
-		cb.mProjection._31 += separation;
-		cb.mProjection._41 = -convergence;
-		cb.mProjection = XMMatrixTranspose(cb.mProjection);
-		g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-		DrawCube();
-	}
-	hr = g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.toggleEyes((int)0xffff0000);
-	if (FAILED(hr))
-	{
-		g_out << "Present failed: " << hr << std::endl;
+		g_out << "!!!  Unknown RenderFrame exception: " << std::endl;
 		OutputDebugStringA(g_out.str().c_str());
 		DebugBreak();
 	}
-
-	double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
-	if (rightEyeElapsed > 18.0f)
-	{
-		g_out << "!! Right frame dropped. Eye swap.\n";
-		OutputDebugStringA(g_out.str().c_str());
-		out_limit = 2;
-		//g_shutterGlasses.refresh();	// re-init on drops
-	}
-	if (out_limit > 0)
-	{
-		g_out << "Right eye frame time: " << rightEyeElapsed << " ms\n";
-		OutputDebugStringA(g_out.str().c_str());
-	}
-
-	double currentFrame = g_Timer.GetElapsedMicroseconds();
-	if (out_limit > 0)
-	{
-		g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
-		OutputDebugStringA(g_out.str().c_str());
-
-		out_limit--;
-	}
-	g_lastFrame = currentFrame;
 }
 
 //--------------------------------------------------------------------------------------
