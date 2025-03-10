@@ -85,7 +85,7 @@ string findUsbDevice()
 					return usbName;
 				}
 		}
-		}
+	}
 
 	SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
 	return "";
@@ -112,7 +112,16 @@ template <typename T>
 unsigned long writeToPipe(HANDLE pipe, T buffer, int bytes)
 {
 	unsigned long bytesWritten;
-	WriteFile(pipe, (char*)buffer, bytes, &bytesWritten, NULL);
+	BOOL result = WriteFile(pipe, (char*)buffer, bytes, &bytesWritten, NULL);
+	if (!result)
+	{
+		DWORD errorCode = GetLastError();
+		vs_out << "!!! WriteFile failed. Error Code: " << errorCode
+			<< " | Bytes attempted: " << bytes
+			<< " | Bytes written: " << bytesWritten << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		DebugBreak();
+	}
 	return bytesWritten;
 }
 
@@ -120,7 +129,16 @@ template <typename T>
 unsigned long readFromPipe(HANDLE pipe, T buffer, int bytes)
 {
 	unsigned long bytesRead;
-	ReadFile(pipe, buffer, bytes, &bytesRead, NULL);
+	BOOL result = ReadFile(pipe, buffer, bytes, &bytesRead, NULL);
+	if (!result)
+	{
+		DWORD errorCode = GetLastError();
+		vs_out << "!!! ReadFile failed. Error Code: " << errorCode
+			<< " | Bytes attempted: " << bytes
+			<< " | Bytes written: " << bytesRead << std::endl;
+		OutputDebugStringA(vs_out.str().c_str());
+		DebugBreak();
+	}
 	return bytesRead;
 }
 
@@ -257,8 +275,10 @@ void NvidiaShutterGlasses::WakeEmitter()
 
 NvidiaShutterGlasses::~NvidiaShutterGlasses()
 {
-	CloseHandle(pipe_usb_init);
-	CloseHandle(pipe_usb_swaps);
+	if (pipe_usb_init != INVALID_HANDLE_VALUE)
+		CloseHandle(pipe_usb_init);
+	if (pipe_usb_swaps != INVALID_HANDLE_VALUE)
+		CloseHandle(pipe_usb_swaps);
 
 	disable_LightBoost_NVIDIA();
 
