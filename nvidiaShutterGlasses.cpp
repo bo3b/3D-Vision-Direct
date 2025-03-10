@@ -76,15 +76,15 @@ string findUsbDevice()
 			if (usbName.find(HardwareIDs[a]) != std::string::npos)
 			{
 					SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
-					cout << "USB Device: " << HardwareIDs[a] << "       \n";
-					//cout << "USB Device: " << usbName << "       \n";
+					cout << "USB Device: " << HardwareIDs[a] << "       " << std::endl;
+					//cout << "USB Device: " << usbName << "       " << std::endl;
 					return usbName;
 				}
 		}
 		/*
 		if (usbName.find("usb#vid_0955&pid_0007") != string::npos)
 		{
-			cout << "USB Device: " << usbName << "       \n";
+			cout << "USB Device: " << usbName << "       " << std::endl;
 			SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
 			return usbName;
 		}
@@ -284,18 +284,20 @@ void NvidiaShutterGlasses::refresh()
 	int timeout = (int)(rate * 4); // idle timeout(number of frames)
 
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { (SHORT)0, (SHORT)15 });
-	vs_out << "\n----- From MonitorTimings.ini ------\n"
-		 << "Monitor: " << MonitorID[currentProfile] << "       \n"
-		 << "EDID ID: " << EDID_ID[currentProfile] << "       \n"
-		 << "ScreenRefresh: " << rate << " Hz      \n"
-		 << "x: " << x_us << "us                   \n" //<< x << "       \n"
-		 << "y: " << y_us << "us                   \n" //<< y << "       \n"
-		 << "z: " << z_us << "us                   \n" //<< z << "       \n"
-		 << "w: " << w_us << "us                   \n\n" //<< w << "       \n"
-		 << "Timing Increment: " << increment << "us                   \n"
-		 << "--------------------------------------\n" 
-		 << "                                        \n"
-		 << "                                        \n";
+	vs_out << std::endl 
+		 << "----- From MonitorTimings.ini ------" << std::endl
+		 << "Monitor: " << MonitorID[currentProfile] << "       " << std::endl
+		 << "EDID ID: " << EDID_ID[currentProfile] << "       " << std::endl
+		 << "ScreenRefresh: " << rate << " Hz      " << std::endl
+		 << "x: " << x_us << "us                   " << std::endl	//<< x << "       " << std::endl
+		 << "y: " << y_us << "us                   " << std::endl	//<< y << "       " << std::endl
+		 << "z: " << z_us << "us                   " << std::endl	//<< z << "       " << std::endl
+		 << "w: " << w_us << "us                   " << std::endl 
+		 << std::endl												//<< w << "       " << std::endl
+		 << "Timing Increment: " << increment << "us                   " << std::endl
+		 << "--------------------------------------" << std::endl 
+		 << "                                        " << std::endl
+		 << "                                        " << std::endl;
 	OutputDebugStringA(vs_out.str().c_str());
 
 	// USB emitter Init sequence to endpoint 2

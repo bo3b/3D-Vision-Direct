@@ -290,9 +290,9 @@ void EnableLightBoost()
 		status = g_shutterGlasses.getCurrentResolution_NVIDIA();
 		if (status != NVAPI_OK)
 		{
-			g_out << "!!! Fail !!!\n"
-				<< " Unable to fetch current resolution and timing. \n"
-				<< "!!! Fail !!!\n";
+			g_out << "!!! Fail !!!" << std::endl
+				<< " Unable to fetch current resolution and timing. " << std::endl
+				<< "!!! Fail !!!" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 			exit(-1);
 		}
@@ -302,9 +302,9 @@ void EnableLightBoost()
 		status = g_shutterGlasses.enable_LightBoost_NVIDIA();
 		if (status != NVAPI_OK)
 		{
-			g_out << "!!! Fail !!!\n"
-				<< " Unable to enable timing for LightBoost. \n"
-				<< "!!! Fail !!!\n";
+			g_out << "!!! Fail !!!" << std::endl
+				<< " Unable to enable timing for LightBoost. " << std::endl
+				<< "!!! Fail !!!" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 			exit(-1);
 		}
@@ -823,14 +823,14 @@ void RenderFrame()
 		double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
 		if (leftEyeElapsed > 18.0f)
 		{
-			g_out << "!! Left frame dropped. Eye swap.\n";
+			g_out << "!! Left frame dropped. Eye swap." << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 			out_limit = 2;
 			//g_shutterGlasses.refresh();	// re-init on drops
 		}
 		if (out_limit > 0)
 		{
-			g_out << "Left eye frame time:  " << leftEyeElapsed << " ms\n";
+			g_out << "Left eye frame time:  " << leftEyeElapsed << " ms" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 		}
 
@@ -864,21 +864,21 @@ void RenderFrame()
 		double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;;
 		if (rightEyeElapsed > 18.0f)
 		{
-			g_out << "!! Right frame dropped. Eye swap.\n";
+			g_out << "!! Right frame dropped. Eye swap." << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 			out_limit = 2;
 			//g_shutterGlasses.refresh();	// re-init on drops
 		}
 		if (out_limit > 0)
 		{
-			g_out << "Right eye frame time: " << rightEyeElapsed << " ms\n";
+			g_out << "Right eye frame time: " << rightEyeElapsed << " ms" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 		}
 
 		double currentFrame = g_Timer.GetElapsedMicroseconds();
 		if (out_limit > 0)
 		{
-			g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms\n";
+			g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms" << std::endl;
 			OutputDebugStringA(g_out.str().c_str());
 
 			out_limit--;
