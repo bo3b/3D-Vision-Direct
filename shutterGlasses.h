@@ -5,33 +5,33 @@
 class ShutterGlasses
 {
 public:
-	ShutterGlasses()
-		: leftEye(true)
-	{
-	}
-	
-	void toggleEyes()
-	{
-		leftEye = !leftEye;
-	}
+    ShutterGlasses() :
+        leftEye(true)
+    {
+    }
 
-	bool isLeftEye() const
-	{
-		return leftEye;
-	}
+    void toggleEyes()
+    {
+        leftEye = !leftEye;
+    }
 
-	void setLeftEye()
-	{
-		leftEye = true;
-	}
+    bool isLeftEye() const
+    {
+        return leftEye;
+    }
 
-	void setRightEye()
-	{
-		leftEye = false;
-	}
+    void setLeftEye()
+    {
+        leftEye = true;
+    }
+
+    void setRightEye()
+    {
+        leftEye = false;
+    }
 
 private:
-	bool leftEye;
+    bool leftEye;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
