@@ -226,15 +226,37 @@ void NvidiaShutterGlasses::WakeEmitter()
 	// pipe is not running correctly.  The delay itself is not sufficient, the pipe
 	// is somehow broken.  So rather than do anything heroic, we'll just close it.
 	HANDLE wake;
-	wake = openUsbDeviceFile("PIPE00");
+	wake = openUsbDeviceFile("PIPE02");
+	if (wake == INVALID_HANDLE_VALUE)
+	{
+		vs_out << "!!! Failed to open usb Wake pipe? Handle: " << wake << std::endl;
+		OutputDebugString(vs_out.str().c_str());
+		DebugBreak();
+	}
 	Sleep(100);
 	CloseHandle(wake);
 	Sleep(100);
 
 	// Actual pipes that will be used to set up and run the emitter.
 	// These are directed to the Emitter USB endpoints.
+	// The PIPE02 is endpoint 2 for the usb emitter interface, used for setup.
+	// The PIPE00 is endpoint 1 for the usb emitter, used for eye swap commands.
+	// The PIPE03 for the usb emitter, used for read commands. (unused here)
+
 	pipe_usb_init = openUsbDeviceFile("PIPE02");
-	pipe_usb_swaps = openUsbDeviceFile("PIPE01");
+	if (pipe_usb_init == INVALID_HANDLE_VALUE)
+	{
+		vs_out << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << std::endl;
+		OutputDebugString(vs_out.str().c_str());
+		DebugBreak();
+	}
+	pipe_usb_swaps = openUsbDeviceFile("PIPE00");
+	if (pipe_usb_swaps == INVALID_HANDLE_VALUE)
+	{
+		vs_out << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << std::endl;
+		OutputDebugString(vs_out.str().c_str());
+		DebugBreak();
+	}
 }
 
 NvidiaShutterGlasses::~NvidiaShutterGlasses()
