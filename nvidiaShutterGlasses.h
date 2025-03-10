@@ -50,7 +50,7 @@ private:
 	std::vector<float> valid_z_us;
 	std::vector<float> valid_w_us;
 	int currentProfile;
-	HANDLE pipe0, pipe1;
+	HANDLE pipe_usb_init, pipe_usb_swaps;
 
 	NvU32 PrimaryDisplayID = 0xDEADBEEF;
 

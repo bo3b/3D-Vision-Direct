@@ -226,20 +226,21 @@ void NvidiaShutterGlasses::WakeEmitter()
 	// pipe is not running correctly.  The delay itself is not sufficient, the pipe
 	// is somehow broken.  So rather than do anything heroic, we'll just close it.
 	HANDLE wake;
-	wake = openUsbDeviceFile("PIPE01");
-	Sleep(1000);
+	wake = openUsbDeviceFile("PIPE00");
+	Sleep(100);
 	CloseHandle(wake);
-	Sleep(3500);
+	Sleep(100);
 
 	// Actual pipes that will be used to set up and run the emitter.
-	pipe0 = openUsbDeviceFile("PIPE02");
-	pipe1 = openUsbDeviceFile("PIPE00");
+	// These are directed to the Emitter USB endpoints.
+	pipe_usb_init = openUsbDeviceFile("PIPE02");
+	pipe_usb_swaps = openUsbDeviceFile("PIPE01");
 }
 
 NvidiaShutterGlasses::~NvidiaShutterGlasses()
 {
-	CloseHandle(pipe0);
-	CloseHandle(pipe1);
+	CloseHandle(pipe_usb_init);
+	CloseHandle(pipe_usb_swaps);
 
 	disable_LightBoost_NVIDIA();
 
@@ -297,6 +298,10 @@ void NvidiaShutterGlasses::refresh()
 		 << "                                        \n";
 	OutputDebugStringA(vs_out.str().c_str());
 
+	// USB emitter Init sequence to endpoint 2
+	//
+	// These hex constants are written backwards from the original libnvstusb code.
+
 	int sequence[] = {	0x00031840,				// set 40 from 42 to skip read, just clear
 						0x00180001, w, x, y, 0x22242830, 0x0405080a, z,
 						0x00021c01, 0x00000002,	//note only 6 bytes are actually sent here
@@ -305,12 +310,12 @@ void NvidiaShutterGlasses::refresh()
 						0x00031840 };
 
 
-	writeToPipe(pipe0, sequence, 4);    // 40 18 03 00
-	writeToPipe(pipe0, sequence+1, 28); // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
-	writeToPipe(pipe0, sequence+8, 6);  // 01 1c 02 00,02 00
-	writeToPipe(pipe0, sequence+10, 6); // 01 1e 02 00,timeout
-	writeToPipe(pipe0, sequence+12, 5); // 01 1b 01 00,07
-	writeToPipe(pipe0, sequence+13, 4); // 40 18 03 00
+	writeToPipe(pipe_usb_init, sequence, 4);    // 40 18 03 00
+	writeToPipe(pipe_usb_init, sequence+1, 28); // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
+	writeToPipe(pipe_usb_init, sequence+8, 6);  // 01 1c 02 00,02 00
+	writeToPipe(pipe_usb_init, sequence+10, 6); // 01 1e 02 00,timeout
+	writeToPipe(pipe_usb_init, sequence+12, 5); // 01 1b 01 00,07
+	writeToPipe(pipe_usb_init, sequence+13, 4); // 40 18 03 00
 
 }
 
@@ -322,7 +327,7 @@ void NvidiaShutterGlasses::refresh()
 void NvidiaShutterGlasses::clear()
 {
 	int sequence[] = { 0x00031840 };
-	writeToPipe(pipe0, sequence, 4); // 40 18 03 00
+	writeToPipe(pipe_usb_init, sequence, 4); // 40 18 03 00
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -330,7 +335,7 @@ void NvidiaShutterGlasses::clear()
 void NvidiaShutterGlasses::toggleEyes(int offset)
 {
 	int sequence[]  = { isLeftEye() ? 0x0000feaa : 0x0000ffaa, offset };
-	writeToPipe(pipe1, sequence, 8);
+	writeToPipe(pipe_usb_swaps, sequence, 8);
 	ShutterGlasses::toggleEyes();
 }
 
@@ -339,7 +344,7 @@ void NvidiaShutterGlasses::toggleEyes(int offset)
 void NvidiaShutterGlasses::setLeftEye(int offset)
 {
 	int sequence[] = { 0x0000feaa, offset };
-	writeToPipe(pipe1, sequence, 8);
+	writeToPipe(pipe_usb_swaps, sequence, 8);
 	ShutterGlasses::setLeftEye();
 }
 
@@ -348,7 +353,7 @@ void NvidiaShutterGlasses::setLeftEye(int offset)
 void NvidiaShutterGlasses::setRightEye(int offset)
 {
 	int sequence[] = { 0x0000ffaa, offset };
-	writeToPipe(pipe1, sequence, 8);
+	writeToPipe(pipe_usb_swaps, sequence, 8);
 	ShutterGlasses::setRightEye();
 }
 
