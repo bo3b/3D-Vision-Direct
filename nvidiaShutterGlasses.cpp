@@ -18,6 +18,9 @@ using namespace std;
 #include <setupapi.h>
 #include <usbdi.h>
 
+// Output stream so we can redirect anything here to VS Output.
+std::ostringstream vs_out;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 string getDeviceName(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA deviceInfoData)
 {
@@ -76,20 +79,13 @@ string findUsbDevice()
 			if (usbName.find(HardwareIDs[a]) != std::string::npos)
 			{
 					SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
-					cout << "USB Device: " << HardwareIDs[a] << "       " << std::endl;
-					//cout << "USB Device: " << usbName << "       " << std::endl;
+					vs_out << "USB Device ID: " << HardwareIDs[a] << "       " 
+						   << "  USB Device Name: " << usbName << "       " << std::endl;
+					OutputDebugStringA(vs_out.str().c_str());
 					return usbName;
 				}
 		}
-		/*
-		if (usbName.find("usb#vid_0955&pid_0007") != string::npos)
-		{
-			cout << "USB Device: " << usbName << "       " << std::endl;
-			SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
-			return usbName;
 		}
-		*/
-	}
 
 	SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
 	return "";
