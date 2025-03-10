@@ -222,6 +222,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 			{
 				PostQuitMessage(0);
 			}
+			if (GetAsyncKeyState(VK_F2) & 0x8000)
+			{
+				g_shutterGlasses.toggleEyes((int)0xffff0000);
+			}
 		}
 	}
 
@@ -805,7 +809,7 @@ void RenderFrame()
 		DrawCube();
 	}
 	hr = g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.setLeftEye((int)0xffff0000);
+	g_shutterGlasses.toggleEyes((int)0xffff0000);
 	if (FAILED(hr))
 	{
 		g_out << "Present failed: " << hr << std::endl;
@@ -846,7 +850,7 @@ void RenderFrame()
 		DrawCube();
 	}
 	hr = g_pSwapChain->Present(1, 0);
-	g_shutterGlasses.setRightEye((int)0xffff0000);
+	g_shutterGlasses.toggleEyes((int)0xffff0000);
 	if (FAILED(hr))
 	{
 		g_out << "Present failed: " << hr << std::endl;
