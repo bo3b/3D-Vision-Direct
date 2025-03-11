@@ -22,90 +22,90 @@ using namespace std;
 std::ostringstream vs_out;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-string getDeviceName(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA deviceInfoData)
+
+static string get_device_name(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA deviceInfoData)
 {
-    ULONG predictedLength = 0;
-    ULONG requiredLength  = 0;
+    ULONG predicted_length = 0;
+    ULONG required_length  = 0;
 
     //allocate a function class device data structure to receive the goods about this particular device.
-    SetupDiGetDeviceInterfaceDetail(hardwareDeviceInfo, deviceInfoData, NULL, 0, &requiredLength, NULL);
-    PSP_DEVICE_INTERFACE_DETAIL_DATA functionClassDeviceData = new SP_DEVICE_INTERFACE_DETAIL_DATA[requiredLength];
-    functionClassDeviceData->cbSize                          = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-    predictedLength                                          = requiredLength;
+    SetupDiGetDeviceInterfaceDetail(hardwareDeviceInfo, deviceInfoData, nullptr, 0, &required_length, nullptr);
 
-    if (SetupDiGetDeviceInterfaceDetail(hardwareDeviceInfo, deviceInfoData, functionClassDeviceData, predictedLength, &requiredLength, NULL))
+    PSP_DEVICE_INTERFACE_DETAIL_DATA function_device_data = new SP_DEVICE_INTERFACE_DETAIL_DATA[required_length];
+    function_device_data->cbSize                          = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+    predicted_length                                      = required_length;
+
+    if (SetupDiGetDeviceInterfaceDetail(hardwareDeviceInfo, deviceInfoData, function_device_data, predicted_length, &required_length, nullptr))
     {
         char name[256];
-        //strncpy_s(name, functionClassDeviceData->DevicePath, 256);
-        strncpy_s(name, functionClassDeviceData->DevicePath, 256);
-        delete[] functionClassDeviceData;
+        strncpy_s(name, function_device_data->DevicePath, 256);
+        delete[] function_device_data;
         return name;
     }
 
-    delete[] functionClassDeviceData;
+    delete[] function_device_data;
     return "";
 }
 
-string findUsbDevice()
+static string find_usb_device()
 {
-    HDEVINFO hardwareDeviceInfo = SetupDiGetClassDevs(&GUID_DEVINTERFACE_USB_DEVICE, 0, 0, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if (hardwareDeviceInfo == INVALID_HANDLE_VALUE)
+    HDEVINFO device_info = SetupDiGetClassDevs(&GUID_DEVINTERFACE_USB_DEVICE, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (device_info == INVALID_HANDLE_VALUE)
         return "";
 
     //Enumerate through all devices in Set.
-    SP_DEVICE_INTERFACE_DATA deviceInfoData;
-    deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    SP_DEVICE_INTERFACE_DATA device_info_data;
+    device_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
 
-    string HardwareIDs[11] = { "usb#vid_0955&pid_0007",
-                               "usb#vid_0955&pid_7001",
-                               "usb#vid_0955&pid_7002",
-                               "usb#vid_0955&pid_7003",
-                               "usb#vid_0955&pid_7004",
-                               "usb#vid_0955&pid_7008",
-                               "usb#vid_0955&pid_7009",
-                               "usb#vid_0955&pid_700A",
-                               "usb#vid_0955&pid_700C",
-                               "usb#vid_0955&pid_700D&mi_00",
-                               "usb#vid_0955&pid_700E&mi_00" };
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { (SHORT)0, (SHORT)25 });
+    string hardware_IDs[11] = { "usb#vid_0955&pid_0007",
+                                "usb#vid_0955&pid_7001",
+                                "usb#vid_0955&pid_7002",
+                                "usb#vid_0955&pid_7003",
+                                "usb#vid_0955&pid_7004",
+                                "usb#vid_0955&pid_7008",
+                                "usb#vid_0955&pid_7009",
+                                "usb#vid_0955&pid_700A",
+                                "usb#vid_0955&pid_700C",
+                                "usb#vid_0955&pid_700D&mi_00",
+                                "usb#vid_0955&pid_700E&mi_00" };
 
-    for (int i = 0; SetupDiEnumDeviceInterfaces(hardwareDeviceInfo, 0, &GUID_DEVINTERFACE_USB_DEVICE, i, &deviceInfoData); ++i)
+    for (int i = 0; SetupDiEnumDeviceInterfaces(device_info, nullptr, &GUID_DEVINTERFACE_USB_DEVICE, i, &device_info_data); ++i)
     {
-        string usbName = getDeviceName(hardwareDeviceInfo, &deviceInfoData);
+        string usb_name = get_device_name(device_info, &device_info_data);
 
-        for (int a = 0; a < (sizeof(HardwareIDs) / sizeof(string)); a++)
+        for (int a = 0; a < (sizeof(hardware_IDs) / sizeof(string)); a++)
         {
-            if (usbName.find(HardwareIDs[a]) != std::string::npos)
+            if (usb_name.find(hardware_IDs[a]) != std::string::npos)
             {
-                SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
-                vs_out << "USB Device ID: " << HardwareIDs[a] << "       "
-                       << "  USB Device Name: " << usbName << "       " << std::endl;
+                SetupDiDestroyDeviceInfoList(device_info);
+                vs_out << "USB Device ID: " << hardware_IDs[a] << "       "
+                       << "  USB Device Name: " << usb_name << "       " << std::endl;
                 OutputDebugStringA(vs_out.str().c_str());
-                return usbName;
+                return usb_name;
             }
         }
     }
 
-    SetupDiDestroyDeviceInfoList(hardwareDeviceInfo);
+    SetupDiDestroyDeviceInfoList(device_info);
     return "";
 }
 
-HANDLE openUsbDeviceFile(const string& filename)
+static HANDLE open_usb_device_filename(const string& filename)
 {
-    string deviceName = findUsbDevice();
-    if (deviceName == "")
+    string emitter_name = find_usb_device();
+    if (emitter_name == "")
         return INVALID_HANDLE_VALUE;
 
-    return CreateFile((deviceName + "\\" + filename).c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    return CreateFile((emitter_name + "\\" + filename).c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
-unsigned long writeToPipe(HANDLE pipe, T buffer, int bytes)
+unsigned long write_to_pipe(HANDLE pipe, T buffer, int bytes)
 {
-    unsigned long bytesWritten;
-    BOOL          result = WriteFile(pipe, (char*)buffer, bytes, &bytesWritten, NULL);
+    DWORD bytesWritten;
+    BOOL  result = WriteFile(pipe, (char*)buffer, bytes, &bytesWritten, nullptr);
     if (!result)
     {
         DWORD errorCode = GetLastError();
@@ -119,7 +119,7 @@ unsigned long writeToPipe(HANDLE pipe, T buffer, int bytes)
 }
 
 template <typename T>
-unsigned long readFromPipe(HANDLE pipe, T buffer, int bytes)
+unsigned long read_from_pipe(HANDLE pipe, T buffer, int bytes)
 {
     unsigned long bytesRead;
     BOOL          result = ReadFile(pipe, buffer, bytes, &bytesRead, NULL);
@@ -231,7 +231,7 @@ void NvidiaShutterGlasses::WakeEmitter()
     // pipe is not running correctly.  The delay itself is not sufficient, the pipe
     // is somehow broken.  So rather than do anything heroic, we'll just close it.
     HANDLE wake;
-    wake = openUsbDeviceFile("PIPE02");
+    wake = open_usb_device_filename("PIPE02");
     if (wake == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb Wake pipe? Handle: " << wake << std::endl;
@@ -248,14 +248,14 @@ void NvidiaShutterGlasses::WakeEmitter()
     // The PIPE00 is endpoint 1 for the usb emitter, used for eye swap commands.
     // The PIPE03 for the usb emitter, used for read commands. (unused here)
 
-    pipe_usb_init = openUsbDeviceFile("PIPE02");
+    pipe_usb_init = open_usb_device_filename("PIPE02");
     if (pipe_usb_init == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << std::endl;
         OutputDebugString(vs_out.str().c_str());
         DebugBreak();
     }
-    pipe_usb_swaps = openUsbDeviceFile("PIPE00");
+    pipe_usb_swaps = open_usb_device_filename("PIPE00");
     if (pipe_usb_swaps == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << std::endl;
@@ -296,17 +296,11 @@ void NvidiaShutterGlasses::InitEmitter()
 
     // prevent negative timing values
     if ((x_us + x_offset) < 0.0)
-    {
         x_offset = 0 - x_us;
-    }
     if ((y_us + y_offset) < 0.0)
-    {
         y_offset = 0 - y_us;
-    }
     if ((w_us + w_offset) < 0.0)
-    {
         w_offset = 0 - w_us;
-    }
 
     x_us += x_offset;
     y_us += y_offset;
@@ -321,7 +315,6 @@ void NvidiaShutterGlasses::InitEmitter()
     uint32_t w       = (int)(-w_us * 12 + 1);  // T2 runs at 12MHz
     uint32_t timeout = (int)(rate * 4);        // idle timeout(number of frames)
 
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { (SHORT)0, (SHORT)15 });
     vs_out << std::endl
            << "----- From MonitorTimings.ini ------" << std::endl
            << "Monitor: " << MonitorID[currentProfile] << "       " << std::endl
@@ -349,12 +342,12 @@ void NvidiaShutterGlasses::InitEmitter()
                             0x00011b01, 0x00000007,  //note only 5 bytes are actually sent here
                             0x00031840 };
 
-    writeToPipe(pipe_usb_init, sequence, 4);       // 40 18 03 00
-    writeToPipe(pipe_usb_init, sequence + 1, 28);  // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
-    writeToPipe(pipe_usb_init, sequence + 8, 6);   // 01 1c 02 00,02 00
-    writeToPipe(pipe_usb_init, sequence + 10, 6);  // 01 1e 02 00,timeout
-    writeToPipe(pipe_usb_init, sequence + 12, 5);  // 01 1b 01 00,07
-    writeToPipe(pipe_usb_init, sequence + 13, 4);  // 40 18 03 00
+    write_to_pipe(pipe_usb_init, sequence, 4);       // 40 18 03 00
+    write_to_pipe(pipe_usb_init, sequence + 1, 28);  // 01 00 18 00,ww ww ww ww,xx xx xx xx,yy yy yy yy,30 28 24 22,0a 08 05 04,zz zz zz zz
+    write_to_pipe(pipe_usb_init, sequence + 8, 6);   // 01 1c 02 00,02 00
+    write_to_pipe(pipe_usb_init, sequence + 10, 6);  // 01 1e 02 00,timeout
+    write_to_pipe(pipe_usb_init, sequence + 12, 5);  // 01 1b 01 00,07
+    write_to_pipe(pipe_usb_init, sequence + 13, 4);  // 40 18 03 00
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -365,7 +358,7 @@ void NvidiaShutterGlasses::InitEmitter()
 void NvidiaShutterGlasses::ClearEmitter()
 {
     uint32_t sequence[] = { 0x00031840 };
-    writeToPipe(pipe_usb_init, sequence, 4);  // 40 18 03 00
+    write_to_pipe(pipe_usb_init, sequence, 4);  // 40 18 03 00
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -374,7 +367,7 @@ void NvidiaShutterGlasses::ToggleEyes()
 {
     uint32_t eye        = IsLeftEye() ? 0x0000feaa : 0x0000ffaa;
     uint32_t sequence[] = { eye, 0xffff0000 };  // aa ff/fe 00 00  00 00 ff ff
-    writeToPipe(pipe_usb_swaps, sequence, 8);
+    write_to_pipe(pipe_usb_swaps, sequence, 8);
     ShutterGlasses::ToggleEyes();
 }
 
@@ -383,7 +376,7 @@ void NvidiaShutterGlasses::ToggleEyes()
 void NvidiaShutterGlasses::SetLeftEye()
 {
     uint32_t sequence[] = { 0x0000feaa, 0xffff0000 };
-    writeToPipe(pipe_usb_swaps, sequence, 8);
+    write_to_pipe(pipe_usb_swaps, sequence, 8);
     ShutterGlasses::SetLeftEye();
 }
 
@@ -392,7 +385,7 @@ void NvidiaShutterGlasses::SetLeftEye()
 void NvidiaShutterGlasses::SetRightEye()
 {
     uint32_t sequence[] = { 0x0000ffaa, 0xffff0000 };
-    writeToPipe(pipe_usb_swaps, sequence, 8);
+    write_to_pipe(pipe_usb_swaps, sequence, 8);
     ShutterGlasses::SetRightEye();
 }
 
@@ -433,7 +426,7 @@ void NvidiaShutterGlasses::NextProfile()
 // Output details to VS Output for sanity checks.
 // If we determine it's a PG278QR running at 120Hz, we'll set flag as OK.
 
-// TODO: Can probably just name this GetCurrentResolution, and decide 
+// TODO: Can probably just name this GetCurrentResolution, and decide
 //  internal to the routine to use NVidia or AMD APIs. Outside caller
 //  does not care.
 
@@ -451,9 +444,10 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
     //	return false;
     //}
 
-    NvPhysicalGpuHandle gpuHandles[NVAPI_MAX_PHYSICAL_GPUS] = {};
-    NvU32               gpuCount                            = 0;
-    status                                                  = NvAPI_EnumPhysicalGPUs(gpuHandles, &gpuCount);
+    NvPhysicalGpuHandle gpu_handles[NVAPI_MAX_PHYSICAL_GPUS] = {};
+    NvU32               gpu_count                            = 0;
+
+    status = NvAPI_EnumPhysicalGPUs(gpu_handles, &gpu_count);
     if (status != NVAPI_OK)
     {
         vs_out << "!!! Failed to enumerate NVidia GPUs - none in system?" << std::endl;
@@ -463,13 +457,14 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
     }
 
     // Get all display IDs connected to the first GPU
-    NV_GPU_DISPLAYIDS displayIds[NVAPI_MAX_DISPLAYS] = {};
-    displayIds->version                              = NV_GPU_DISPLAYIDS_VER2;
-    NvU32 displayCount                               = 1;  // Only do first one for now.
-    status                                           = NvAPI_GPU_GetConnectedDisplayIds(gpuHandles[0], displayIds, &displayCount, 0);
-    if (status != NVAPI_OK || displayCount == 0)
+    NV_GPU_DISPLAYIDS display_ids[NVAPI_MAX_DISPLAYS] = {};
+    display_ids->version                              = NV_GPU_DISPLAYIDS_VER2;
+    NvU32 display_count                               = 1;  // Only do first one for now.
+
+    status = NvAPI_GPU_GetConnectedDisplayIds(gpu_handles[0], display_ids, &display_count, 0);
+    if (status != NVAPI_OK || display_count == 0)
     {
-        vs_out << "!!! Failed to get connected display IDs. Count: " << displayCount << std::endl;
+        vs_out << "!!! Failed to get connected display IDs. Count: " << display_count << std::endl;
         NvAPI_Unload();
         OutputDebugString(vs_out.str().c_str());
         return status;
@@ -484,7 +479,8 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
     NV_TIMING       timing  = {};
     NV_TIMING_INPUT current = {};
     current.version         = NV_TIMING_INPUT_VER;
-    status                  = NvAPI_DISP_GetTiming(displayIds[0].displayId, &current, &timing);
+
+    status = NvAPI_DISP_GetTiming(display_ids[0].displayId, &current, &timing);
     if (status != NVAPI_OK)
     {
         vs_out << "Failed to retrieve current timing parameters" << std::endl;
@@ -514,7 +510,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
     // enable the EnableLightBoost_NVIDIA call.
     if (timing.etc.rrx1k == 119998 && timing.VTotal == 1525 && timing.HVisible == 2560 && timing.VVisible == 1440)
     {
-        PrimaryDisplayID = displayIds[0].displayId;
+        PrimaryDisplayID = display_ids[0].displayId;
     }
 
     return NVAPI_OK;

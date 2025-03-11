@@ -1,4 +1,8 @@
 #pragma once
+
+#include <windows.h>
+#include <sstream>
+
 // High-resolution timer class
 class Timer
 {
@@ -15,22 +19,22 @@ public:
 
     double GetElapsedMicroseconds()
     {
-        LARGE_INTEGER currentTime;
-        bool          test = QueryPerformanceCounter(&currentTime);
+        LARGE_INTEGER current_time;
+        bool          test = QueryPerformanceCounter(&current_time);
 
         if (test == 0)
             DebugBreak();
 
-        if (currentTime.QuadPart < lastCallTime.QuadPart)
+        if (current_time.QuadPart < lastCallTime.QuadPart)
             DebugBreak();
-        lastCallTime = currentTime;
+        lastCallTime = current_time;
 
-        LARGE_INTEGER testFrequency;
-        QueryPerformanceFrequency(&testFrequency);
-        if (testFrequency.QuadPart != frequency.QuadPart)
+        LARGE_INTEGER test_frequency;
+        QueryPerformanceFrequency(&test_frequency);
+        if (test_frequency.QuadPart != frequency.QuadPart)
             DebugBreak();
 
-        double out = (currentTime.QuadPart - startTime.QuadPart) * 1'000'000.0 / frequency.QuadPart;
+        double out = (current_time.QuadPart - startTime.QuadPart) * 1'000'000.0 / frequency.QuadPart;
         //if (out < lastOut)
         //	DebugBreak();
         lastOut = out;
@@ -41,8 +45,8 @@ public:
 private:
     std::ostringstream g_out;
 
-    LARGE_INTEGER frequency;  // Ticks per second
-    LARGE_INTEGER startTime;  // Start timestamp
+    LARGE_INTEGER frequency    = {};  // Ticks per second
+    LARGE_INTEGER startTime    = {};  // Start timestamp
     LARGE_INTEGER lastCallTime = {};
     double        lastOut      = 0;
 };

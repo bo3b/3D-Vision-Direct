@@ -92,11 +92,11 @@
 //   Still does the bluescreen crash when accessed without waking. So it's not the
 //   reading aspect, it's any access. We thus need a clean way to wake it before
 //   using.
-// 
+//
 // Bo3b: 3-10-25
 //   Got this fully working now, including enabling and disabling LightBoost when the
 //   app is rendering. Some tricky little bits, but overall this is going to work well.
-//   Solved the BSOD at WakeEmitter by opening the USB pipe, then closing it. This 
+//   Solved the BSOD at WakeEmitter by opening the USB pipe, then closing it. This
 //   clears whatever bad state was there, and allows the following open pipes to work.
 //   Apparently it is also possible to time delay 3 seconds, maybe for the internal
 //   emitter timeout, but this is faster and works.
@@ -112,16 +112,17 @@
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
-#include "resource.h"
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <iomanip>
+#include <thread>
 
 #include "nvapi.h"
+
 #include "Timer.h"
 #include "nvidiaShutterGlasses.h"
-#include <thread>
+#include "resource.h"
 
 using namespace DirectX;
 
@@ -334,31 +335,32 @@ HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR 
 {
     HRESULT hr = S_OK;
 
-    DWORD dwShaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
+    DWORD shader_flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #ifdef _DEBUG
     // Set the D3DCOMPILE_DEBUG flag to embed debug information in the shaders.
     // Setting this flag improves the shader debugging experience, but still allows
     // the shaders to be optimized and to run exactly the way they will run in
     // the release configuration of this program.
-    dwShaderFlags |= D3DCOMPILE_DEBUG;
+    shader_flags |= D3DCOMPILE_DEBUG;
 
     // Disable optimizations to further improve shader debugging
-    dwShaderFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
+    shader_flags |= D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
-    ID3DBlob* pErrorBlob = nullptr;
-    hr                   = D3DCompileFromFile(szFileName, nullptr, nullptr, szEntryPoint, szShaderModel, dwShaderFlags, 0, ppBlobOut, &pErrorBlob);
+    ID3DBlob* error_blob = nullptr;
+
+    hr = D3DCompileFromFile(szFileName, nullptr, nullptr, szEntryPoint, szShaderModel, shader_flags, 0, ppBlobOut, &error_blob);
     if (FAILED(hr))
     {
-        if (pErrorBlob)
+        if (error_blob)
         {
-            OutputDebugStringA(reinterpret_cast<const char*>(pErrorBlob->GetBufferPointer()));
-            pErrorBlob->Release();
+            OutputDebugStringA(reinterpret_cast<const char*>(error_blob->GetBufferPointer()));
+            error_blob->Release();
         }
         return hr;
     }
-    if (pErrorBlob)
-        pErrorBlob->Release();
+    if (error_blob)
+        error_blob->Release();
 
     return S_OK;
 }
@@ -368,15 +370,15 @@ HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR 
 //--------------------------------------------------------------------------------------
 HRESULT init_dx11()
 {
-    HRESULT hr = S_OK;
+    HRESULT   hr          = S_OK;
+    ID3DBlob* shader_blob = nullptr;
 
-    UINT createDeviceFlags = 0;
+    UINT create_device_flags = 0;
 #ifdef _DEBUG
-    createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+    create_device_flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    DXGI_SWAP_CHAIN_DESC sd;
-    ZeroMemory(&sd, sizeof(sd));
+    DXGI_SWAP_CHAIN_DESC sd               = {};
     sd.BufferCount                        = 2;
     sd.BufferDesc.Width                   = g_ScreenWidth;
     sd.BufferDesc.Height                  = g_ScreenHeight;
@@ -391,7 +393,7 @@ HRESULT init_dx11()
     sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
+    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
     if (FAILED(hr))
         return hr;
 
@@ -402,42 +404,43 @@ HRESULT init_dx11()
     //	return hr;
 
     // Create a render target view from the backbuffer
-    ID3D11Texture2D* pBackBuffer = nullptr;
-    hr                           = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
+    ID3D11Texture2D* back_buffer = nullptr;
+
+    hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer));
     if (FAILED(hr))
         return hr;
-    hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
-    pBackBuffer->Release();
+
+    hr = g_pd3dDevice->CreateRenderTargetView(back_buffer, nullptr, &g_pRenderTargetView);
+    back_buffer->Release();
     if (FAILED(hr))
         return hr;
 
     // Create depth stencil texture
-    D3D11_TEXTURE2D_DESC descDepth;
-    ZeroMemory(&descDepth, sizeof(descDepth));
-    descDepth.Width              = g_ScreenWidth;
-    descDepth.Height             = g_ScreenHeight;
-    descDepth.MipLevels          = 1;
-    descDepth.ArraySize          = 1;
-    descDepth.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    descDepth.SampleDesc.Count   = 1;
-    descDepth.SampleDesc.Quality = 0;
-    descDepth.Usage              = D3D11_USAGE_DEFAULT;
-    descDepth.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
-    descDepth.CPUAccessFlags     = 0;
-    descDepth.MiscFlags          = 0;
-    hr                           = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil);
+    D3D11_TEXTURE2D_DESC desc_stencil = {};
+    desc_stencil.Width                = g_ScreenWidth;
+    desc_stencil.Height               = g_ScreenHeight;
+    desc_stencil.MipLevels            = 1;
+    desc_stencil.ArraySize            = 1;
+    desc_stencil.Format               = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    desc_stencil.SampleDesc.Count     = 1;
+    desc_stencil.SampleDesc.Quality   = 0;
+    desc_stencil.Usage                = D3D11_USAGE_DEFAULT;
+    desc_stencil.BindFlags            = D3D11_BIND_DEPTH_STENCIL;
+    desc_stencil.CPUAccessFlags       = 0;
+    desc_stencil.MiscFlags            = 0;
+    hr                                = g_pd3dDevice->CreateTexture2D(&desc_stencil, nullptr, &g_pDepthStencil);
     if (FAILED(hr))
         return hr;
 
     // Create the depth stencil view
     //
     // This is not strictly necessary for our 3D, but is almost always used.
-    D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
-    ZeroMemory(&descDSV, sizeof(descDSV));
-    descDSV.Format             = descDepth.Format;
-    descDSV.ViewDimension      = D3D11_DSV_DIMENSION_TEXTURE2D;
-    descDSV.Texture2D.MipSlice = 0;
-    hr                         = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &descDSV, &g_pDepthStencilView);
+    D3D11_DEPTH_STENCIL_VIEW_DESC stencil_view_desc = {};
+    stencil_view_desc.Format                        = desc_stencil.Format;
+    stencil_view_desc.ViewDimension                 = D3D11_DSV_DIMENSION_TEXTURE2D;
+    stencil_view_desc.Texture2D.MipSlice            = 0;
+
+    hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &stencil_view_desc, &g_pDepthStencilView);
     if (FAILED(hr))
         return hr;
 
@@ -455,8 +458,7 @@ HRESULT init_dx11()
     g_pImmediateContext->RSSetViewports(1, &vp);
 
     // Compile the vertex shader
-    ID3DBlob* pVSBlob = nullptr;
-    hr                = compile_shader_from_file(L"Tutorial07.fx", "VS", "vs_4_0", &pVSBlob);
+    hr = compile_shader_from_file(L"Tutorial07.fx", "VS", "vs_4_0", &shader_blob);
     if (FAILED(hr))
     {
         MessageBox(nullptr, "The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", "Error", MB_OK);
@@ -464,10 +466,10 @@ HRESULT init_dx11()
     }
 
     // Create the vertex shader
-    hr = g_pd3dDevice->CreateVertexShader(pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), nullptr, &g_pVertexShader);
+    hr = g_pd3dDevice->CreateVertexShader(shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(), nullptr, &g_pVertexShader);
     if (FAILED(hr))
     {
-        pVSBlob->Release();
+        shader_blob->Release();
         return hr;
     }
 
@@ -476,11 +478,11 @@ HRESULT init_dx11()
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
-    UINT numElements = ARRAYSIZE(layout);
+    UINT num_elements = ARRAYSIZE(layout);
 
     // Create the input layout
-    hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), &g_pVertexLayout);
-    pVSBlob->Release();
+    hr = g_pd3dDevice->CreateInputLayout(layout, num_elements, shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(), &g_pVertexLayout);
+    shader_blob->Release();
     if (FAILED(hr))
         return hr;
 
@@ -488,8 +490,7 @@ HRESULT init_dx11()
     g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
 
     // Compile the pixel shader
-    ID3DBlob* pPSBlob = nullptr;
-    hr                = compile_shader_from_file(L"Tutorial07.fx", "PS", "ps_4_0", &pPSBlob);
+    hr = compile_shader_from_file(L"Tutorial07.fx", "PS", "ps_4_0", &shader_blob);
     if (FAILED(hr))
     {
         MessageBox(nullptr, "The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", "Error", MB_OK);
@@ -497,8 +498,8 @@ HRESULT init_dx11()
     }
 
     // Create the pixel shader
-    hr = g_pd3dDevice->CreatePixelShader(pPSBlob->GetBufferPointer(), pPSBlob->GetBufferSize(), nullptr, &g_pPixelShader);
-    pPSBlob->Release();
+    hr = g_pd3dDevice->CreatePixelShader(shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(), nullptr, &g_pPixelShader);
+    shader_blob->Release();
     if (FAILED(hr))
         return hr;
 
@@ -535,16 +536,16 @@ HRESULT init_dx11()
         { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
     };
 
-    D3D11_BUFFER_DESC bd;
-    ZeroMemory(&bd, sizeof(bd));
-    bd.Usage          = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth      = sizeof(simple_vertex) * 24;
-    bd.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
-    bd.CPUAccessFlags = 0;
-    D3D11_SUBRESOURCE_DATA InitData;
-    ZeroMemory(&InitData, sizeof(InitData));
-    InitData.pSysMem = vertices;
-    hr               = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer);
+    D3D11_BUFFER_DESC bd = {};
+    bd.Usage             = D3D11_USAGE_DEFAULT;
+    bd.ByteWidth         = sizeof(simple_vertex) * 24;
+    bd.BindFlags         = D3D11_BIND_VERTEX_BUFFER;
+    bd.CPUAccessFlags    = 0;
+
+    D3D11_SUBRESOURCE_DATA init_data = {};
+    init_data.pSysMem                = vertices;
+
+    hr = g_pd3dDevice->CreateBuffer(&bd, &init_data, &g_pVertexBuffer);
     if (FAILED(hr))
         return hr;
 
@@ -579,8 +580,8 @@ HRESULT init_dx11()
     bd.ByteWidth      = sizeof(WORD) * 36;
     bd.BindFlags      = D3D11_BIND_INDEX_BUFFER;
     bd.CPUAccessFlags = 0;
-    InitData.pSysMem  = indices;
-    hr                = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer);
+    init_data.pSysMem = indices;
+    hr                = g_pd3dDevice->CreateBuffer(&bd, &init_data, &g_pIndexBuffer);
     if (FAILED(hr))
         return hr;
 
@@ -603,10 +604,10 @@ HRESULT init_dx11()
     g_World = XMMatrixIdentity();
 
     // Initialize the view matrix
-    XMVECTOR Eye = XMVectorSet(0.0f, 3.0f, -6.0f, 0.0f);
-    XMVECTOR At  = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    XMVECTOR Up  = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    g_View       = XMMatrixLookAtLH(Eye, At, Up);
+    XMVECTOR eye = XMVectorSet(0.0f, 3.0f, -6.0f, 0.0f);
+    XMVECTOR at  = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    XMVECTOR up  = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    g_View       = XMMatrixLookAtLH(eye, at, up);
 
     // Initialize the projection matrix
     //
@@ -676,7 +677,6 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             break;
 
         case WM_ACTIVATE:
-            // Reinit the emitter upon regaining focus.
             if (LOWORD(wParam) == WA_INACTIVE)
             {
                 LARGE_INTEGER now;
@@ -690,8 +690,6 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 QueryPerformanceCounter(&now);
                 g_out << "<-- Activate    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
                 OutputDebugStringA(g_out.str().c_str());
-                //Sleep(5000);
-                //	g_shutterGlasses.InitEmitter();
             }
             break;
 
@@ -771,17 +769,13 @@ void render_frame()
     // the 3D settings.
     // The variable names are a bit misleading at present.
     //
-    shared_CB cb;
-    float    pConvergence;
-    float    pSeparationPercentage;
-    float    pEyeSeparation;
+    shared_CB cb                    = {};
+    float     eye_convergence       = 4.0f;
+    float     eye_separation        = 10.10f;
+    float     separation_percentage = 0.52f;
 
-    pEyeSeparation        = 10.10f;
-    pConvergence          = 4.0f;
-    pSeparationPercentage = 0.52f;
-
-    float separation  = pEyeSeparation * pSeparationPercentage / 100;
-    float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
+    float separation  = eye_separation * separation_percentage / 100;
+    float convergence = eye_separation * separation_percentage / 100 * eye_convergence;
 
     //stall += 10;
     //sleep_microseconds(stall);
@@ -795,7 +789,7 @@ void render_frame()
         // Specifically set the LeftEye as active, not just toggle. This seems
         // to help get proper sync when the app is active, but doesn't help with
         // alt-tab eye swaps.
-        double leftEyeStart = g_Timer.GetElapsedMicroseconds();
+        double left_eye_start = g_Timer.GetElapsedMicroseconds();
 
         //
         // Drawing same object twice, once for each eye.
@@ -825,8 +819,8 @@ void render_frame()
             DebugBreak();
         }
 
-        double leftEyeElapsed = (g_Timer.GetElapsedMicroseconds() - leftEyeStart) / 1000.0f;
-        if (leftEyeElapsed > 18.0f)
+        double left_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - left_eye_start) / 1000.0f;
+        if (left_eye_elapsed > 18.0f)
         {
             g_out << "!! Left frame dropped. Eye swap." << std::endl;
             OutputDebugStringA(g_out.str().c_str());
@@ -835,7 +829,7 @@ void render_frame()
         }
         if (out_limit > 0)
         {
-            g_out << "Left eye frame time:  " << leftEyeElapsed << " ms" << std::endl;
+            g_out << "Left eye frame time:  " << left_eye_elapsed << " ms" << std::endl;
             OutputDebugStringA(g_out.str().c_str());
         }
 
@@ -843,7 +837,7 @@ void render_frame()
         //
         // After eye-swaps, this surprisingly does nothing.
         //g_shutterGlasses.ToggleEyes((int)0xffff0000);
-        double rightEyeStart = g_Timer.GetElapsedMicroseconds();
+        double right_eye_start = g_Timer.GetElapsedMicroseconds();
 
         {
             cb.mWorld = XMMatrixTranspose(g_World);
@@ -866,9 +860,9 @@ void render_frame()
             DebugBreak();
         }
 
-        double rightEyeElapsed = (g_Timer.GetElapsedMicroseconds() - rightEyeStart) / 1000.0f;
+        double right_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - right_eye_start) / 1000.0f;
         ;
-        if (rightEyeElapsed > 18.0f)
+        if (right_eye_elapsed > 18.0f)
         {
             g_out << "!! Right frame dropped. Eye swap." << std::endl;
             OutputDebugStringA(g_out.str().c_str());
@@ -877,19 +871,19 @@ void render_frame()
         }
         if (out_limit > 0)
         {
-            g_out << "Right eye frame time: " << rightEyeElapsed << " ms" << std::endl;
+            g_out << "Right eye frame time: " << right_eye_elapsed << " ms" << std::endl;
             OutputDebugStringA(g_out.str().c_str());
         }
 
-        double currentFrame = g_Timer.GetElapsedMicroseconds();
+        double current_frame_time = g_Timer.GetElapsedMicroseconds();
         if (out_limit > 0)
         {
-            g_out << "  full frame time:             " << (currentFrame - g_lastFrame) / 1000.0f << " ms" << std::endl;
+            g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
             OutputDebugStringA(g_out.str().c_str());
 
             out_limit--;
         }
-        g_lastFrame = currentFrame;
+        g_lastFrame = current_frame_time;
     }
     catch (const std::exception& e)
     {
