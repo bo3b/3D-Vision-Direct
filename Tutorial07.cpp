@@ -67,17 +67,17 @@
 //   There is some sort of internal timer to the emitter, that runs even if it is
 //   not getting setEye commands.  It seems to be some mechanism to keep it swapping
 //   eyes, even if there are glitches and frames are missed. So for example, we can
-//   just hit setLeftEye at the top of the loop, and it will auto-swap to right during
+//   just hit SetLeftEye at the top of the loop, and it will auto-swap to right during
 //   a given frame, even with no call. This runs for at least 6 frames, and maybe more.
 //	 There is an auto-timeout of some form, where if does not get any AA setEye commands
 //   it will stop running and turn off the bright green and infra-red to the glasses.
 //
 //   It's not at all clear why we get eye swaps, especially because I am sure to always
-//   call setLeftEye before drawing left eye data. So it also does not respect the
+//   call SetLeftEye before drawing left eye data. So it also does not respect the
 //   setEye command, and uses it as a way to resync it's timer to avoid drift, but
 //   does not actually immediately switch eyes.  There is the $40 clear command, but
 //   that also seems to do nothing. It does not restart the device in proper mode. I
-//   removed the 'Read' commands, because I don't think we are about the front button
+//   removed the 'Read' commands, because I don't think we care about the front button
 //   and scroll wheel at all. And the FlintEastwood repo was getting blue-screens
 //   from that.
 //
@@ -128,25 +128,25 @@ using namespace DirectX;
 //--------------------------------------------------------------------------------------
 // Forward declarations
 //--------------------------------------------------------------------------------------
-HRESULT          InitWindow(HINSTANCE hInstance, int nCmdShow);
-void             StartGlasses();
-void             EnableLightBoost();
-HRESULT          InitDevice();
-void             CleanupDevice();
-LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-void             RenderFrame();
-void             Render();
+HRESULT          init_window(HINSTANCE hInstance, int nCmdShow);
+void             start_glasses();
+void             enable_lightboost();
+HRESULT          init_dx11();
+void             cleanup_device();
+LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
+void             render_frame();
+void             render();
 
 //--------------------------------------------------------------------------------------
 // Structures
 //--------------------------------------------------------------------------------------
-struct SimpleVertex
+struct simple_vertex
 {
     XMFLOAT3 Pos;
     XMFLOAT2 Tex;
 };
 
-struct SharedCB
+struct shared_CB
 {
     XMMATRIX mWorld;
     XMMATRIX mView;
@@ -200,23 +200,23 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     // Before we create DX11 and windows, enable LightBoost.
-    EnableLightBoost();
+    enable_lightboost();
     // Safely Wake and Initialize the timing of the emitter.
-    StartGlasses();
+    start_glasses();
 
-    if (FAILED(InitWindow(hInstance, nCmdShow)))
+    if (FAILED(init_window(hInstance, nCmdShow)))
         return 0;
 
-    if (FAILED(InitDevice()))
+    if (FAILED(init_dx11()))
     {
-        CleanupDevice();
+        cleanup_device();
         return 0;
     }
 
     // Start a rendering subthread, so that rendering is off the main app thread,
     // and thus UI things like dragging the window don't block drawing.
     g_running      = true;
-    g_renderThread = std::thread(Render);
+    g_renderThread = std::thread(render);
 
     // Main message loop
     MSG msg = {};
@@ -234,7 +234,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
             }
             if (GetAsyncKeyState(VK_F2) & 0x8000)
             {
-                g_shutterGlasses.toggleEyes();
+                g_shutterGlasses.ToggleEyes();
             }
         }
     }
@@ -246,7 +246,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
         g_renderThread.join();  // Wait for it to cleanly exit.
     }
 
-    CleanupDevice();
+    cleanup_device();
 
     return (int)msg.wParam;
 }
@@ -254,13 +254,13 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 //--------------------------------------------------------------------------------------
 // Register class and create window
 //--------------------------------------------------------------------------------------
-HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
+HRESULT init_window(HINSTANCE hInstance, int nCmdShow)
 {
     // Register class
     WNDCLASSEX wcex;
     wcex.cbSize        = sizeof(WNDCLASSEX);
     wcex.style         = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc   = WndProc;
+    wcex.lpfnWndProc   = window_proc;
     wcex.cbClsExtra    = 0;
     wcex.cbWndExtra    = 0;
     wcex.hInstance     = hInstance;
@@ -289,11 +289,11 @@ HRESULT InitWindow(HINSTANCE hInstance, int nCmdShow)
     return S_OK;
 }
 
-void EnableLightBoost()
+void enable_lightboost()
 {
     NvAPI_Status status;
 
-    status = g_shutterGlasses.getCurrentResolution_NVIDIA();
+    status = g_shutterGlasses.GetCurrentResolution_NVIDIA();
     if (status != NVAPI_OK)
     {
         g_out << "!!! Fail !!!" << std::endl
@@ -305,7 +305,7 @@ void EnableLightBoost()
 
     // Since we could get the resolution successfully, let's go ahead and enable
     // LightBoost.  We'll not error out if it fails to setup.
-    status = g_shutterGlasses.enable_LightBoost_NVIDIA();
+    status = g_shutterGlasses.EnableLightBoost_NVIDIA();
     if (status != NVAPI_OK)
     {
         g_out << "!!! Fail !!!" << std::endl
@@ -315,14 +315,14 @@ void EnableLightBoost()
     }
 }
 
-void StartGlasses()
+void start_glasses()
 {
     // Start timers and initialize the emitter timing values.
     g_shutterGlasses.WakeEmitter();
-    g_shutterGlasses.refresh();
+    g_shutterGlasses.InitEmitter();
 
     // Start with left eye open.
-    g_shutterGlasses.setLeftEye();
+    g_shutterGlasses.SetLeftEye();
 }
 
 //--------------------------------------------------------------------------------------
@@ -330,7 +330,7 @@ void StartGlasses()
 //
 // With VS 11, we could load up prebuilt .cso files instead...
 //--------------------------------------------------------------------------------------
-HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szShaderModel, ID3DBlob** ppBlobOut)
+HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szShaderModel, ID3DBlob** ppBlobOut)
 {
     HRESULT hr = S_OK;
 
@@ -366,7 +366,7 @@ HRESULT CompileShaderFromFile(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR szS
 //--------------------------------------------------------------------------------------
 // Create Direct3D device and swap chain
 //--------------------------------------------------------------------------------------
-HRESULT InitDevice()
+HRESULT init_dx11()
 {
     HRESULT hr = S_OK;
 
@@ -456,7 +456,7 @@ HRESULT InitDevice()
 
     // Compile the vertex shader
     ID3DBlob* pVSBlob = nullptr;
-    hr                = CompileShaderFromFile(L"Tutorial07.fx", "VS", "vs_4_0", &pVSBlob);
+    hr                = compile_shader_from_file(L"Tutorial07.fx", "VS", "vs_4_0", &pVSBlob);
     if (FAILED(hr))
     {
         MessageBox(nullptr, "The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", "Error", MB_OK);
@@ -489,7 +489,7 @@ HRESULT InitDevice()
 
     // Compile the pixel shader
     ID3DBlob* pPSBlob = nullptr;
-    hr                = CompileShaderFromFile(L"Tutorial07.fx", "PS", "ps_4_0", &pPSBlob);
+    hr                = compile_shader_from_file(L"Tutorial07.fx", "PS", "ps_4_0", &pPSBlob);
     if (FAILED(hr))
     {
         MessageBox(nullptr, "The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", "Error", MB_OK);
@@ -503,7 +503,7 @@ HRESULT InitDevice()
         return hr;
 
     // Create vertex buffer for the cube
-    SimpleVertex vertices[] = {
+    simple_vertex vertices[] = {
         { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
         { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
         { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
@@ -538,7 +538,7 @@ HRESULT InitDevice()
     D3D11_BUFFER_DESC bd;
     ZeroMemory(&bd, sizeof(bd));
     bd.Usage          = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth      = sizeof(SimpleVertex) * 24;
+    bd.ByteWidth      = sizeof(simple_vertex) * 24;
     bd.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags = 0;
     D3D11_SUBRESOURCE_DATA InitData;
@@ -549,7 +549,7 @@ HRESULT InitDevice()
         return hr;
 
     // Set vertex buffer
-    UINT stride = sizeof(SimpleVertex);
+    UINT stride = sizeof(simple_vertex);
     UINT offset = 0;
     g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
 
@@ -592,7 +592,7 @@ HRESULT InitDevice()
 
     // Create the constant buffer
     bd.Usage          = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth      = sizeof(SharedCB);
+    bd.ByteWidth      = sizeof(shared_CB);
     bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     bd.CPUAccessFlags = 0;
     hr                = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
@@ -620,7 +620,7 @@ HRESULT InitDevice()
 //--------------------------------------------------------------------------------------
 // Clean up the objects we've created
 //--------------------------------------------------------------------------------------
-void CleanupDevice()
+void cleanup_device()
 {
     if (g_pSwapChain)
         g_pSwapChain->SetFullscreenState(FALSE, nullptr);
@@ -659,7 +659,7 @@ void CleanupDevice()
 //--------------------------------------------------------------------------------------
 // Called every time the application receives a message
 //--------------------------------------------------------------------------------------
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     PAINTSTRUCT ps;
     HDC         hdc;
@@ -691,7 +691,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 g_out << "<-- Activate    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
                 OutputDebugStringA(g_out.str().c_str());
                 //Sleep(5000);
-                //	g_shutterGlasses.refresh();
+                //	g_shutterGlasses.InitEmitter();
             }
             break;
 
@@ -708,7 +708,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 //--------------------------------------------------------------------------------------
 // Render current image, eye independent.
 //--------------------------------------------------------------------------------------
-void DrawCube()
+void draw_cube()
 {
     //
     // Clear the back buffer
@@ -736,18 +736,18 @@ void DrawCube()
     g_pImmediateContext->DrawIndexed(36, 0, 0);
 }
 
-void SleepMicroseconds(int64_t microseconds)
+void sleep_microseconds(int64_t microseconds)
 {
     LARGE_INTEGER frequency, start, current;
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&start);
 
-    int64_t targetTicks = (microseconds * frequency.QuadPart) / 1000000;
+    int64_t target_ticks = (microseconds * frequency.QuadPart) / 1000000;
 
     do
     {
         QueryPerformanceCounter(&current);
-    } while (current.QuadPart - start.QuadPart < targetTicks);
+    } while (current.QuadPart - start.QuadPart < target_ticks);
 }
 
 int64_t stall     = 0;
@@ -756,7 +756,7 @@ int     out_limit = 4;
 //--------------------------------------------------------------------------------------
 // Render a frame, both eyes.
 //--------------------------------------------------------------------------------------
-void RenderFrame()
+void render_frame()
 {
     HRESULT hr;
 
@@ -771,7 +771,7 @@ void RenderFrame()
     // the 3D settings.
     // The variable names are a bit misleading at present.
     //
-    SharedCB cb;
+    shared_CB cb;
     float    pConvergence;
     float    pSeparationPercentage;
     float    pEyeSeparation;
@@ -784,7 +784,7 @@ void RenderFrame()
     float convergence = pEyeSeparation * pSeparationPercentage / 100 * pConvergence;
 
     //stall += 10;
-    //SleepMicroseconds(stall);
+    //sleep_microseconds(stall);
 
     // Checking for possible fatal errors that could cause an eye swap situation.
     // Does not seem to ever hit exception handler, which is what we'd expect.
@@ -814,10 +814,10 @@ void RenderFrame()
             cb.mProjection     = XMMatrixTranspose(cb.mProjection);
             g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-            DrawCube();
+            draw_cube();
         }
         hr = g_pSwapChain->Present(1, 0);
-        g_shutterGlasses.toggleEyes();
+        g_shutterGlasses.ToggleEyes();
         if (FAILED(hr))
         {
             g_out << "Present failed: " << hr << std::endl;
@@ -831,7 +831,7 @@ void RenderFrame()
             g_out << "!! Left frame dropped. Eye swap." << std::endl;
             OutputDebugStringA(g_out.str().c_str());
             out_limit = 2;
-            //g_shutterGlasses.refresh();	// re-init on drops
+            //g_shutterGlasses.InitEmitter();	// re-init on drops
         }
         if (out_limit > 0)
         {
@@ -842,7 +842,7 @@ void RenderFrame()
         // <----------------------- Right Eye -------------------------------
         //
         // After eye-swaps, this surprisingly does nothing.
-        //g_shutterGlasses.toggleEyes((int)0xffff0000);
+        //g_shutterGlasses.ToggleEyes((int)0xffff0000);
         double rightEyeStart = g_Timer.GetElapsedMicroseconds();
 
         {
@@ -855,10 +855,10 @@ void RenderFrame()
             cb.mProjection     = XMMatrixTranspose(cb.mProjection);
             g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-            DrawCube();
+            draw_cube();
         }
         hr = g_pSwapChain->Present(1, 0);
-        g_shutterGlasses.toggleEyes();
+        g_shutterGlasses.ToggleEyes();
         if (FAILED(hr))
         {
             g_out << "Present failed: " << hr << std::endl;
@@ -873,7 +873,7 @@ void RenderFrame()
             g_out << "!! Right frame dropped. Eye swap." << std::endl;
             OutputDebugStringA(g_out.str().c_str());
             out_limit = 2;
-            //g_shutterGlasses.refresh();	// re-init on drops
+            //g_shutterGlasses.InitEmitter();	// re-init on drops
         }
         if (out_limit > 0)
         {
@@ -893,25 +893,25 @@ void RenderFrame()
     }
     catch (const std::exception& e)
     {
-        g_out << "!!!  RenderFrame exception: " << e.what() << std::endl;
+        g_out << "!!!  render_frame exception: " << e.what() << std::endl;
         OutputDebugStringA(g_out.str().c_str());
         DebugBreak();
     }
     catch (...)
     {
-        g_out << "!!!  Unknown RenderFrame exception: " << std::endl;
+        g_out << "!!!  Unknown render_frame exception: " << std::endl;
         OutputDebugStringA(g_out.str().c_str());
         DebugBreak();
     }
 }
 
 //--------------------------------------------------------------------------------------
-// // Render call from the subthread.
+// // render call from the subthread.
 //--------------------------------------------------------------------------------------
-void Render()
+void render()
 {
     while (g_running)
     {
-        RenderFrame();
+        render_frame();
     }
 }

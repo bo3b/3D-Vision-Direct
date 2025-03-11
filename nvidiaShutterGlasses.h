@@ -11,10 +11,10 @@
 #include <windows.h>
 #include <vector>
 #include <sstream>
-#include "shutterGlasses.h"
 #include <iostream>
 
 #include "nvapi.h"
+#include "shutterGlasses.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -22,19 +22,20 @@ class NvidiaShutterGlasses : public ShutterGlasses
 {
 public:
     NvidiaShutterGlasses();
-    void WakeEmitter();
     ~NvidiaShutterGlasses();
 
-    void toggleEyes();
-    void setLeftEye();
-    void setRightEye();
-    void nextProfile();
-    void refresh();
-    void clear();
+    void WakeEmitter();
+    void InitEmitter();
+    void ClearEmitter();
 
-    NvAPI_Status getCurrentResolution_NVIDIA();
-    NvAPI_Status enable_LightBoost_NVIDIA();
-    NvAPI_Status disable_LightBoost_NVIDIA();
+    void ToggleEyes();
+    void SetLeftEye();
+    void SetRightEye();
+    void NextProfile();
+
+    NvAPI_Status GetCurrentResolution_NVIDIA();
+    NvAPI_Status EnableLightBoost_NVIDIA();
+    NvAPI_Status DisableLightBoost_NVIDIA();
 
     float x_offset;
     float y_offset;

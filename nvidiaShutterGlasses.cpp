@@ -271,7 +271,7 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
     if (pipe_usb_swaps != INVALID_HANDLE_VALUE)
         CloseHandle(pipe_usb_swaps);
 
-    disable_LightBoost_NVIDIA();
+    DisableLightBoost_NVIDIA();
 
     NvAPI_Unload();
 }
@@ -279,7 +279,7 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //refresh variables and initialize usb device
-void NvidiaShutterGlasses::refresh()
+void NvidiaShutterGlasses::InitEmitter()
 {
     float rate = validRefreshRates[currentProfile];
     float x_us = valid_x_us[currentProfile];  //us
@@ -342,7 +342,7 @@ void NvidiaShutterGlasses::refresh()
     //
     // These hex constants are written backwards from the original libnvstusb code.
 
-    uint32_t sequence[] = { 0x00031840,  // set 40 from 42 to skip read, just clear
+    uint32_t sequence[] = { 0x00031840,  // set 40 from 42 to skip read, just ClearEmitter
                             0x00180001, w, x, y, 0x22242830, 0x0405080a, z,
                             0x00021c01, 0x00000002,  //note only 6 bytes are actually sent here
                             0x00021e01, timeout,     //note only 6 bytes are actually sent here
@@ -359,10 +359,10 @@ void NvidiaShutterGlasses::refresh()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Just send the clear command by itself.
+// Just send the ClearEmitter command by itself.
 // It is the last sequence before the example goes into alternating eye pings.
 
-void NvidiaShutterGlasses::clear()
+void NvidiaShutterGlasses::ClearEmitter()
 {
     uint32_t sequence[] = { 0x00031840 };
     writeToPipe(pipe_usb_init, sequence, 4);  // 40 18 03 00
@@ -370,35 +370,35 @@ void NvidiaShutterGlasses::clear()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::toggleEyes()
+void NvidiaShutterGlasses::ToggleEyes()
 {
-    uint32_t eye        = isLeftEye() ? 0x0000feaa : 0x0000ffaa;
+    uint32_t eye        = IsLeftEye() ? 0x0000feaa : 0x0000ffaa;
     uint32_t sequence[] = { eye, 0xffff0000 };  // aa ff/fe 00 00  00 00 ff ff
     writeToPipe(pipe_usb_swaps, sequence, 8);
-    ShutterGlasses::toggleEyes();
+    ShutterGlasses::ToggleEyes();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::setLeftEye()
+void NvidiaShutterGlasses::SetLeftEye()
 {
     uint32_t sequence[] = { 0x0000feaa, 0xffff0000 };
     writeToPipe(pipe_usb_swaps, sequence, 8);
-    ShutterGlasses::setLeftEye();
+    ShutterGlasses::SetLeftEye();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::setRightEye()
+void NvidiaShutterGlasses::SetRightEye()
 {
     uint32_t sequence[] = { 0x0000ffaa, 0xffff0000 };
     writeToPipe(pipe_usb_swaps, sequence, 8);
-    ShutterGlasses::setRightEye();
+    ShutterGlasses::SetRightEye();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NvidiaShutterGlasses::nextProfile()
+void NvidiaShutterGlasses::NextProfile()
 {
     currentProfile++;
     if (currentProfile >= validRefreshRates.size())
@@ -406,7 +406,7 @@ void NvidiaShutterGlasses::nextProfile()
     x_offset = 0.0f;
     y_offset = 0.0f;
     w_offset = 0.0f;
-    refresh();
+    InitEmitter();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -433,7 +433,11 @@ void NvidiaShutterGlasses::nextProfile()
 // Output details to VS Output for sanity checks.
 // If we determine it's a PG278QR running at 120Hz, we'll set flag as OK.
 
-NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
+// TODO: Can probably just name this GetCurrentResolution, and decide 
+//  internal to the routine to use NVidia or AMD APIs. Outside caller
+//  does not care.
+
+NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
 {
     NvAPI_Status status;
 
@@ -507,7 +511,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
     OutputDebugStringA(vs_out.str().c_str());
 
     // If we are running a known good monitor, let's mark it valid and thus
-    // enable the enable_LightBoost_NVIDIA call.
+    // enable the EnableLightBoost_NVIDIA call.
     if (timing.etc.rrx1k == 119998 && timing.VTotal == 1525 && timing.HVisible == 2560 && timing.VVisible == 1440)
     {
         PrimaryDisplayID = displayIds[0].displayId;
@@ -526,7 +530,7 @@ NvAPI_Status NvidiaShutterGlasses::getCurrentResolution_NVIDIA()
 // using this approach gives the same monitor flash/setup as when 3D Vision is
 // activated in a game.
 
-NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
+NvAPI_Status NvidiaShutterGlasses::EnableLightBoost_NVIDIA()
 {
     NvAPI_Status status;
 
@@ -591,7 +595,7 @@ NvAPI_Status NvidiaShutterGlasses::enable_LightBoost_NVIDIA()
 
 // Restore the previous setting upon exit.
 
-NvAPI_Status NvidiaShutterGlasses::disable_LightBoost_NVIDIA()
+NvAPI_Status NvidiaShutterGlasses::DisableLightBoost_NVIDIA()
 {
     NvAPI_Status status;
 

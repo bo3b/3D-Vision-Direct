@@ -10,22 +10,22 @@ public:
     {
     }
 
-    void toggleEyes()
+    void ToggleEyes()
     {
         leftEye = !leftEye;
     }
 
-    bool isLeftEye() const
+    bool IsLeftEye() const
     {
         return leftEye;
     }
 
-    void setLeftEye()
+    void SetLeftEye()
     {
         leftEye = true;
     }
 
-    void setRightEye()
+    void SetRightEye()
     {
         leftEye = false;
     }
