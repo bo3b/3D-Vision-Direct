@@ -101,38 +101,37 @@ static HANDLE open_usb_device_filename(const string& filename)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T>
-unsigned long write_to_pipe(HANDLE pipe, T buffer, int bytes)
+DWORD write_to_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 {
-    DWORD bytesWritten;
-    BOOL  result = WriteFile(pipe, (char*)buffer, bytes, &bytesWritten, nullptr);
+    DWORD bytes_written;
+    BOOL  result = WriteFile(pipe, buffer, count, &bytes_written, nullptr);
     if (!result)
     {
         DWORD errorCode = GetLastError();
         vs_out << "!!! WriteFile failed. Error Code: " << errorCode
-               << " | Bytes attempted: " << bytes
-               << " | Bytes written: " << bytesWritten << std::endl;
+               << " | Bytes attempted: " << count
+               << " | Bytes written: " << bytes_written << std::endl;
         OutputDebugStringA(vs_out.str().c_str());
         DebugBreak();
     }
-    return bytesWritten;
+    return bytes_written;
 }
 
-template <typename T>
-unsigned long read_from_pipe(HANDLE pipe, T buffer, int bytes)
+// Unused
+DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 {
-    unsigned long bytesRead;
-    BOOL          result = ReadFile(pipe, buffer, bytes, &bytesRead, NULL);
+    DWORD bytes_read;
+    BOOL  result = ReadFile(pipe, buffer, count, &bytes_read, nullptr);
     if (!result)
     {
         DWORD errorCode = GetLastError();
         vs_out << "!!! ReadFile failed. Error Code: " << errorCode
-               << " | Bytes attempted: " << bytes
-               << " | Bytes written: " << bytesRead << std::endl;
+               << " | Bytes attempted: " << count
+               << " | Bytes written: " << bytes_read << std::endl;
         OutputDebugStringA(vs_out.str().c_str());
         DebugBreak();
     }
-    return bytesRead;
+    return bytes_read;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
