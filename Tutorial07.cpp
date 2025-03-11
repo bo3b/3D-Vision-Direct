@@ -1,6 +1,13 @@
 //--------------------------------------------------------------------------------------
 // File: Tutorial07.cpp
 //
+// Early reverse engineering of emitter: https://users.csc.calpoly.edu/~zwood/teaching/csc572/final11/rsomers/
+// Test app for stereo viewing: https://github.com/bobsomers/3dvgl/tree/master
+// Best example of emitter programming (Linux): https://sourceforge.net/p/libnvstusb/code/HEAD/tree/
+// Conversion to Windows and GitHub: https://github.com/FlintEastwood/3DVisionActivator
+// Original mtbs3d thread about hacking emitter: http://www.mtbs3d.com/phpBB/viewtopic.php?f=26&t=3130
+// Best list of 3D Vision certified monitors: https://www.mtbs3d.com/phpbb/viewtopic.php?t=23314
+//
 // Originally the Tutorial07, now heavily modified to simply demonstrate
 // the use of 3D Vision Direct Mode.
 //
