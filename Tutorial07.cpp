@@ -92,6 +92,19 @@
 //   Still does the bluescreen crash when accessed without waking. So it's not the
 //   reading aspect, it's any access. We thus need a clean way to wake it before
 //   using.
+// 
+// Bo3b: 3-10-25
+//   Got this fully working now, including enabling and disabling LightBoost when the
+//   app is rendering. Some tricky little bits, but overall this is going to work well.
+//   Solved the BSOD at WakeEmitter by opening the USB pipe, then closing it. This 
+//   clears whatever bad state was there, and allows the following open pipes to work.
+//   Apparently it is also possible to time delay 3 seconds, maybe for the internal
+//   emitter timeout, but this is faster and works.
+//   Got the timing for LightBoost to work exactly right. Adding the +5 on back porch
+//   works to enable LightBoost, but also requires the tweak to pixel clock to handle
+//   that extra delay. Doing the NvAPI_DISP_RevertCustomDisplayTrial works, and seems
+//   to match NVidia 3D Vision behavior. This seems superior to requiring a specific
+//   manual or external resolution profile, because we can do all this inline.
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
