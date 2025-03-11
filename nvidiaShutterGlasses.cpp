@@ -136,8 +136,7 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-NvidiaShutterGlasses::NvidiaShutterGlasses() :
-    currentProfile(0)
+NvidiaShutterGlasses::NvidiaShutterGlasses()
 {
     NvAPI_Status status = NvAPI_Initialize();
     if (status != NVAPI_OK)
@@ -146,6 +145,11 @@ NvidiaShutterGlasses::NvidiaShutterGlasses() :
         OutputDebugStringA(vs_out.str().c_str());
         // TODO: force exception, save bool, something?
     }
+
+    // Only reading the single monitor setup here.
+    // Will need to use IniHandler in 3Dmigoto for multiples.
+
+    monitor_info ini;
 
     ifstream fin("MonitorTimings.ini");
     if (fin.is_open())
@@ -158,51 +162,54 @@ NvidiaShutterGlasses::NvidiaShutterGlasses() :
             string searchstr = "Monitor:";
             size_t found     = line.find(searchstr);
             if (found != std::string::npos)
-                MonitorID.push_back(line.substr(found + searchstr.length()));
+                ini.monitor_name = (line.substr(found + searchstr.length()));
 
             searchstr = "EDID_ID:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                EDID_ID.push_back(line.substr(found + searchstr.length()));
+                ini.monitor_EDID = (line.substr(found + searchstr.length()));
 
             searchstr = "RefreshRateHz:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                validRefreshRates.push_back(stof(line.substr(found + searchstr.length())));
+                ini.refresh_rate = (stof(line.substr(found + searchstr.length())));
 
             searchstr = "X_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                valid_x_us.push_back(stof(line.substr(found + searchstr.length())));
+                ini.timer_x_us = (stof(line.substr(found + searchstr.length())));
 
             searchstr = "Y_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                valid_y_us.push_back(stof(line.substr(found + searchstr.length())));
+                ini.timer_y_us = (stof(line.substr(found + searchstr.length())));
 
             searchstr = "Z_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                valid_z_us.push_back(stof(line.substr(found + searchstr.length())));
+                ini.timer_z_us = (stof(line.substr(found + searchstr.length())));
 
             searchstr = "W_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
-                valid_w_us.push_back(stof(line.substr(found + searchstr.length())));
+                ini.timer_w_us = (stof(line.substr(found + searchstr.length())));
         }
         fin.close();
     }
     else
     {
         // Not found, default to PG278QR known good timings
-        MonitorID.push_back("No MonitorTimings.ini !!!");
-        EDID_ID.push_back("DummyID");
-        validRefreshRates.push_back(119.997f);
-        valid_x_us.push_back(0.5f);
-        valid_y_us.push_back(7334.00f);
-        valid_z_us.push_back(8333.50f);
-        valid_w_us.push_back(4735.58f);
+        ini.monitor_name = ("No MonitorTimings.ini !!!");
+        ini.monitor_EDID = ("DummyID");
+        ini.refresh_rate = (119.997f);
+        ini.timer_x_us   = (0.5f);
+        ini.timer_y_us   = (7334.00f);
+        ini.timer_z_us   = (8333.50f);
+        ini.timer_w_us   = (4735.58f);
     }
+
+    // Single add to the vector for now.
+    monitors.push_back(ini);
 }
 
 // Push this into a specific routine, so we can specify the actual timing, instead
@@ -265,11 +272,13 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 //refresh variables and initialize usb device
 void NvidiaShutterGlasses::InitEmitter()
 {
-    float rate = validRefreshRates[currentProfile];
-    float x_us = valid_x_us[currentProfile];  //us
-    float y_us = valid_y_us[currentProfile];  //us(activeTime)
-    float z_us = valid_z_us[currentProfile];  //us(frameTime) (Can be calculated from 1000ms/rate ???)
-    float w_us = valid_w_us[currentProfile];  //us
+    monitor_info main = monitors.front();
+
+    float rate = main.refresh_rate;
+    float x_us = main.timer_x_us;  //us
+    float y_us = main.timer_y_us;  //us(activeTime)
+    float z_us = main.timer_z_us;  //us(frameTime) (Can be calculated from 1000ms/rate ???)
+    float w_us = main.timer_w_us;  //us
 
     //Asus PG248Q (AUS24B1) Values from NvTimingsEd 120Hz
     //float rate = 119.983 ;
@@ -289,8 +298,8 @@ void NvidiaShutterGlasses::InitEmitter()
 
     vs_out << std::endl
            << "----- From MonitorTimings.ini ------" << std::endl
-           << "Monitor: " << MonitorID[currentProfile] << "       " << std::endl
-           << "EDID ID: " << EDID_ID[currentProfile] << "       " << std::endl
+           << "Monitor: " << main.monitor_name << "       " << std::endl
+           << "EDID ID: " << main.monitor_EDID << "       " << std::endl
            << "ScreenRefresh: " << rate << " Hz      " << std::endl
            << "x: " << x_us << "us                   " << std::endl
            << "y: " << y_us << "us                   " << std::endl

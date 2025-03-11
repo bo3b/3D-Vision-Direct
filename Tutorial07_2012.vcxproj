@@ -427,7 +427,9 @@
     <Library Include="nvapi64.lib" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="MonitorTimings.ini" />
+    <CopyFileToFolders Include="MonitorTimings.ini">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

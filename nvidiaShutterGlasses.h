@@ -49,14 +49,6 @@ private:
     };
     std::vector<monitor_info> monitors;
 
-    std::vector<std::string> MonitorID;
-    std::vector<std::string> EDID_ID;
-    std::vector<float>       validRefreshRates;
-    std::vector<float>       valid_x_us;
-    std::vector<float>       valid_y_us;
-    std::vector<float>       valid_z_us;
-    std::vector<float>       valid_w_us;
-    int                      currentProfile;
     HANDLE                   pipe_usb_init  = INVALID_HANDLE_VALUE;
     HANDLE                   pipe_usb_swaps = INVALID_HANDLE_VALUE;
 
