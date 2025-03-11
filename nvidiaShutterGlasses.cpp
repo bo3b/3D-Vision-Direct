@@ -137,7 +137,7 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 NvidiaShutterGlasses::NvidiaShutterGlasses() :
-    currentProfile(0), x_offset(0.0f), y_offset(0.0f), w_offset(0.0f)
+    currentProfile(0)
 {
     NvAPI_Status status = NvAPI_Initialize();
     if (status != NVAPI_OK)
@@ -146,22 +146,6 @@ NvidiaShutterGlasses::NvidiaShutterGlasses() :
         OutputDebugStringA(vs_out.str().c_str());
         // TODO: force exception, save bool, something?
     }
-
-    /*
-	ifstream fin("validRefreshRates.ini");
-	if (fin.is_open())
-	{
-		while (!fin.eof())
-		{
-			string line;
-			getline(fin, line);
-			//validRefreshRates.push_back(atoi(line.c_str()));
-			validRefreshRates.push_back(stof(line));
-		}
-		fin.close();
-	}
-	else { validRefreshRates.push_back(99.999f); }
-	*/
 
     ifstream fin("MonitorTimings.ini");
     if (fin.is_open())
@@ -210,13 +194,14 @@ NvidiaShutterGlasses::NvidiaShutterGlasses() :
     }
     else
     {
+        // Not found, default to PG278QR known good timings
         MonitorID.push_back("No MonitorTimings.ini !!!");
         EDID_ID.push_back("DummyID");
-        validRefreshRates.push_back(120.0f);
-        valid_x_us.push_back(1.0f);
-        valid_y_us.push_back(7333.0f);
-        valid_z_us.push_back(8333.34f);
-        valid_w_us.push_back(4735.0f);
+        validRefreshRates.push_back(119.997f);
+        valid_x_us.push_back(0.5f);
+        valid_y_us.push_back(7334.00f);
+        valid_z_us.push_back(8333.50f);
+        valid_w_us.push_back(4735.58f);
     }
 }
 
@@ -293,18 +278,6 @@ void NvidiaShutterGlasses::InitEmitter()
     //float z_us = 8334.50 ;	//us(frameTime) (Can be calculated from 1000ms/rate ???)
     //float w_us = 4735.58 ;	//us
 
-    // prevent negative timing values
-    if ((x_us + x_offset) < 0.0)
-        x_offset = 0 - x_us;
-    if ((y_us + y_offset) < 0.0)
-        y_offset = 0 - y_us;
-    if ((w_us + w_offset) < 0.0)
-        w_offset = 0 - w_us;
-
-    x_us += x_offset;
-    y_us += y_offset;
-    w_us += w_offset;
-
     //int NVSTUSB_CLOCK = 48000000; // CPU clock of IR emitter
     //int NVSTUSB_T0_CLOCK = NVSTUSB_CLOCK / 12 / 1000000; // T0 runs at  4MHz
     //int NVSTUSB_T2_CLOCK = NVSTUSB_CLOCK /  4 / 1000000; // T2 runs at 12MHz
@@ -319,12 +292,11 @@ void NvidiaShutterGlasses::InitEmitter()
            << "Monitor: " << MonitorID[currentProfile] << "       " << std::endl
            << "EDID ID: " << EDID_ID[currentProfile] << "       " << std::endl
            << "ScreenRefresh: " << rate << " Hz      " << std::endl
-           << "x: " << x_us << "us                   " << std::endl  //<< x << "       " << std::endl
-           << "y: " << y_us << "us                   " << std::endl  //<< y << "       " << std::endl
-           << "z: " << z_us << "us                   " << std::endl  //<< z << "       " << std::endl
+           << "x: " << x_us << "us                   " << std::endl
+           << "y: " << y_us << "us                   " << std::endl
+           << "z: " << z_us << "us                   " << std::endl
            << "w: " << w_us << "us                   " << std::endl
-           << std::endl  //<< w << "       " << std::endl
-           << "Timing Increment: " << increment << "us                   " << std::endl
+           << std::endl
            << "--------------------------------------" << std::endl
            << "                                        " << std::endl
            << "                                        " << std::endl;
@@ -388,19 +360,7 @@ void NvidiaShutterGlasses::SetRightEye()
     ShutterGlasses::SetRightEye();
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void NvidiaShutterGlasses::NextProfile()
-{
-    currentProfile++;
-    if (currentProfile >= validRefreshRates.size())
-        currentProfile = 0;
-    x_offset = 0.0f;
-    y_offset = 0.0f;
-    w_offset = 0.0f;
-    InitEmitter();
-}
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // This will change the monitor timings, so that it will enable LightBoost.

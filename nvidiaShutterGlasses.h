@@ -31,18 +31,24 @@ public:
     void ToggleEyes();
     void SetLeftEye();
     void SetRightEye();
-    void NextProfile();
 
     NvAPI_Status GetCurrentResolution_NVIDIA();
     NvAPI_Status EnableLightBoost_NVIDIA();
     NvAPI_Status DisableLightBoost_NVIDIA();
 
-    float x_offset;
-    float y_offset;
-    float w_offset;
-    int   increment = 100;
-
 private:
+    struct monitor_info
+    {
+        std::string monitor_name;
+        std::string monitor_EDID;
+        float       refresh_rate;
+        float       timer_x_us;
+        float       timer_y_us;
+        float       timer_z_us;
+        float       timer_w_us;
+    };
+    std::vector<monitor_info> monitors;
+
     std::vector<std::string> MonitorID;
     std::vector<std::string> EDID_ID;
     std::vector<float>       validRefreshRates;
