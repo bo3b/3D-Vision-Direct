@@ -9,19 +9,24 @@
 #include <setupapi.h>
 #include <initguid.h>
 #include <usbiodef.h>
+
+#include <string>
 #include <sstream>
 #include <fstream>
+#include <iostream>
 
-using namespace std;
+using std::getline;
+using std::wifstream;
+using std::wstring;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Output stream so we can redirect anything here to VS Output.
-stringstream vs_out;
+std::wstringstream vs_out;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static string get_device_name(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA deviceInfoData)
+static wstring get_device_name(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_DATA deviceInfoData)
 {
     ULONG predicted_length = 0;
     ULONG required_length  = 0;
@@ -35,66 +40,68 @@ static string get_device_name(HDEVINFO hardwareDeviceInfo, PSP_DEVICE_INTERFACE_
 
     if (SetupDiGetDeviceInterfaceDetail(hardwareDeviceInfo, deviceInfoData, function_device_data, predicted_length, &required_length, nullptr))
     {
-        char name[256];
-        strncpy_s(name, function_device_data->DevicePath, 256);
+        wstring name(function_device_data->DevicePath);
+
         delete[] function_device_data;
         return name;
     }
 
+    // Error result
     delete[] function_device_data;
-    return "";
+    return L"";
 }
 
-static string find_usb_device()
+static wstring find_usb_device()
 {
     HDEVINFO device_info = SetupDiGetClassDevs(&GUID_DEVINTERFACE_USB_DEVICE, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (device_info == INVALID_HANDLE_VALUE)
-        return "";
+        return L"";
 
     //Enumerate through all devices in Set.
     SP_DEVICE_INTERFACE_DATA device_info_data;
     device_info_data.cbSize = sizeof(SP_DEVINFO_DATA);
 
-    string hardware_IDs[11] = { "usb#vid_0955&pid_0007",
-                                "usb#vid_0955&pid_7001",
-                                "usb#vid_0955&pid_7002",
-                                "usb#vid_0955&pid_7003",
-                                "usb#vid_0955&pid_7004",
-                                "usb#vid_0955&pid_7008",
-                                "usb#vid_0955&pid_7009",
-                                "usb#vid_0955&pid_700A",
-                                "usb#vid_0955&pid_700C",
-                                "usb#vid_0955&pid_700D&mi_00",
-                                "usb#vid_0955&pid_700E&mi_00" };
+    wstring hardware_IDs[11] = { L"usb#vid_0955&pid_0007",
+                                 L"usb#vid_0955&pid_7001",
+                                 L"usb#vid_0955&pid_7002",
+                                 L"usb#vid_0955&pid_7003",
+                                 L"usb#vid_0955&pid_7004",
+                                 L"usb#vid_0955&pid_7008",
+                                 L"usb#vid_0955&pid_7009",
+                                 L"usb#vid_0955&pid_700A",
+                                 L"usb#vid_0955&pid_700C",
+                                 L"usb#vid_0955&pid_700D&mi_00",
+                                 L"usb#vid_0955&pid_700E&mi_00" };
 
     for (int i = 0; SetupDiEnumDeviceInterfaces(device_info, nullptr, &GUID_DEVINTERFACE_USB_DEVICE, i, &device_info_data); ++i)
     {
-        string usb_name = get_device_name(device_info, &device_info_data);
+        wstring usb_name = get_device_name(device_info, &device_info_data);
 
-        for (int a = 0; a < (sizeof(hardware_IDs) / sizeof(string)); a++)
+        for (int a = 0; a < (sizeof(hardware_IDs) / sizeof(wstring)); a++)
         {
-            if (usb_name.find(hardware_IDs[a]) != std::string::npos)
+            if (usb_name.find(hardware_IDs[a]) != std::wstring::npos)
             {
                 SetupDiDestroyDeviceInfoList(device_info);
                 vs_out << "USB Device ID: " << hardware_IDs[a] << "       "
                        << "  USB Device Name: " << usb_name << "       " << std::endl;
-                OutputDebugStringA(vs_out.str().c_str());
+                OutputDebugString(vs_out.str().c_str());
                 return usb_name;
             }
         }
     }
 
+    // Error out
     SetupDiDestroyDeviceInfoList(device_info);
-    return "";
+    return L"";
 }
 
-static HANDLE open_usb_device_filename(const string& filename)
+static HANDLE open_usb_device_filename(const wstring& filename)
 {
-    string emitter_name = find_usb_device();
-    if (emitter_name == "")
+    wstring emitter_name = find_usb_device();
+    if (emitter_name == L"")
         return INVALID_HANDLE_VALUE;
 
-    return CreateFile((emitter_name + "\\" + filename).c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    return CreateFile((emitter_name + L"\\" + filename).c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -109,7 +116,7 @@ DWORD write_to_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
         vs_out << "!!! WriteFile failed. Error Code: " << errorCode
                << " | Bytes attempted: " << count
                << " | Bytes written: " << bytes_written << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         DebugBreak();
     }
     return bytes_written;
@@ -126,7 +133,7 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
         vs_out << "!!! ReadFile failed. Error Code: " << errorCode
                << " | Bytes attempted: " << count
                << " | Bytes written: " << bytes_read << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         DebugBreak();
     }
     return bytes_read;
@@ -140,7 +147,7 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
     if (status != NVAPI_OK)
     {
         vs_out << "!!! NvAPI Initialization failed" << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         // TODO: force exception, save bool, something?
     }
 
@@ -149,45 +156,45 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 
     monitor_info ini;
 
-    ifstream fin("MonitorTimings.ini");
+    wifstream fin("MonitorTimings.ini");
     if (fin.is_open())
     {
         while (!fin.eof())
         {
-            string line;
+            wstring line;
             getline(fin, line);
 
-            string searchstr = "Monitor:";
-            size_t found     = line.find(searchstr);
+            wstring searchstr = L"Monitor:";
+            size_t  found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.monitor_name = (line.substr(found + searchstr.length()));
 
-            searchstr = "EDID_ID:";
+            searchstr = L"EDID_ID:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.monitor_EDID = (line.substr(found + searchstr.length()));
 
-            searchstr = "RefreshRateHz:";
+            searchstr = L"RefreshRateHz:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.refresh_rate = (stof(line.substr(found + searchstr.length())));
 
-            searchstr = "X_us:";
+            searchstr = L"X_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.timer_x_us = (stof(line.substr(found + searchstr.length())));
 
-            searchstr = "Y_us:";
+            searchstr = L"Y_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.timer_y_us = (stof(line.substr(found + searchstr.length())));
 
-            searchstr = "Z_us:";
+            searchstr = L"Z_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.timer_z_us = (stof(line.substr(found + searchstr.length())));
 
-            searchstr = "W_us:";
+            searchstr = L"W_us:";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.timer_w_us = (stof(line.substr(found + searchstr.length())));
@@ -197,8 +204,8 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
     else
     {
         // Not found, default to PG278QR known good timings
-        ini.monitor_name = ("No MonitorTimings.ini !!!");
-        ini.monitor_EDID = ("DummyID");
+        ini.monitor_name = (L"No MonitorTimings.ini !!!");
+        ini.monitor_EDID = (L"DummyID");
         ini.refresh_rate = (119.997f);
         ini.timer_x_us   = (0.5f);
         ini.timer_y_us   = (7334.00f);
@@ -220,7 +227,7 @@ void NvidiaShutterGlasses::WakeEmitter()
     // pipe is not running correctly.  The delay itself is not sufficient, the pipe
     // is somehow broken.  So rather than do anything heroic, we'll just close it.
     HANDLE wake;
-    wake = open_usb_device_filename("PIPE02");
+    wake = open_usb_device_filename(L"PIPE02");
     if (wake == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb Wake pipe? Handle: " << wake << std::endl;
@@ -237,14 +244,14 @@ void NvidiaShutterGlasses::WakeEmitter()
     // The PIPE00 is endpoint 1 for the usb emitter, used for eye swap commands.
     // The PIPE03 for the usb emitter, used for read commands. (unused here)
 
-    pipe_usb_init = open_usb_device_filename("PIPE02");
+    pipe_usb_init = open_usb_device_filename(L"PIPE02");
     if (pipe_usb_init == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << std::endl;
         OutputDebugString(vs_out.str().c_str());
         DebugBreak();
     }
-    pipe_usb_swaps = open_usb_device_filename("PIPE00");
+    pipe_usb_swaps = open_usb_device_filename(L"PIPE00");
     if (pipe_usb_swaps == INVALID_HANDLE_VALUE)
     {
         vs_out << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << std::endl;
@@ -307,7 +314,7 @@ void NvidiaShutterGlasses::InitEmitter()
            << "--------------------------------------" << std::endl
            << "                                        " << std::endl
            << "                                        " << std::endl;
-    OutputDebugStringA(vs_out.str().c_str());
+    OutputDebugString(vs_out.str().c_str());
 
     // USB emitter Init sequence to endpoint 2
     //
@@ -394,14 +401,14 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     NvAPI_Status status;
 
     // TODO: Find GPU in system, from Windows, decide to use AMD or NVidia
-    
+
     // We only can expect to use primary display?
     // TODO: seems like we could allow syncing on an alternate display.
     //status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
     //if (status != NVAPI_OK)
     //{
     //	vs_out << "!!! Failed to get primary display handle" << std::endl;
-    //	OutputDebugStringA(vs_out.str().c_str());
+    //	OutputDebugString(vs_out.str().c_str());
     //	return false;
     //}
 
@@ -445,11 +452,11 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     if (status != NVAPI_OK)
     {
         vs_out << "Failed to retrieve current timing parameters" << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         return status;
     }
 
-    vs_out << "Display Timing Details:" << std::endl;
+    vs_out << "Display Timing Details - EDID: " << std::endl;
     vs_out << "----------------------" << std::endl;
     vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << std::endl;
     vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << std::endl;
@@ -465,7 +472,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 
     //if (timing.TimingFlags & NV_TIMING_FLAGS_PREFERRED)
     //	vs_out << "Status: Preferred Timing" << std::endl;
-    OutputDebugStringA(vs_out.str().c_str());
+    OutputDebugString(vs_out.str().c_str());
 
     // If we are running a known good monitor, let's mark it valid and thus
     // enable the EnableLightBoost call.
@@ -503,7 +510,7 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     if (status != NVAPI_OK)
     {
         vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         return status;
     }
 
@@ -534,7 +541,7 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
         vs_out << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << std::endl;
         vs_out << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << std::endl;
         vs_out << "----------------------" << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
     }
 
     // Enable LightBoost timing. If this fails for some reason and returns an error, that is OK,
@@ -543,7 +550,7 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     if (status != NVAPI_OK)
     {
         vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << std::endl;
-        OutputDebugStringA(vs_out.str().c_str());
+        OutputDebugString(vs_out.str().c_str());
         return status;
     }
 
@@ -565,7 +572,7 @@ NvAPI_Status NvidiaShutterGlasses::DisableLightBoost()
 }
 
 // Prototype setup for AMD support, untested.
-// 
+//
 //#include <adl_sdk.h>
 //
 //void GetCurrentResolution_AMD()

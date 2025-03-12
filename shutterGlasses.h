@@ -102,13 +102,13 @@ public:
 private:
     struct monitor_info
     {
-        std::string monitor_name;
-        std::string monitor_EDID;
-        float       refresh_rate;
-        float       timer_x_us;
-        float       timer_y_us;
-        float       timer_z_us;
-        float       timer_w_us;
+        std::wstring monitor_name;
+        std::wstring monitor_EDID;
+        float        refresh_rate;
+        float        timer_x_us;
+        float        timer_y_us;
+        float        timer_z_us;
+        float        timer_w_us;
     };
     std::vector<monitor_info> monitors;
 
