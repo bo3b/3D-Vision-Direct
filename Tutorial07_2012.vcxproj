@@ -404,7 +404,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="nvidiaShutterGlasses.cpp" />
+    <ClCompile Include="ShutterGlasses.cpp" />
     <ClCompile Include="Tutorial07.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -416,9 +416,8 @@
     <ClInclude Include="nvapi_lite_sli.h" />
     <ClInclude Include="nvapi_lite_stereo.h" />
     <ClInclude Include="nvapi_lite_surround.h" />
-    <ClInclude Include="nvidiaShutterGlasses.h" />
+    <ClInclude Include="ShutterGlasses.h" />
     <CLInclude Include="resource.h" />
-    <ClInclude Include="shutterGlasses.h" />
     <ClInclude Include="Timer.h" />
     <ResourceCompile Include="Tutorial07.rc" />
   </ItemGroup>

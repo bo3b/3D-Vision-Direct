@@ -128,7 +128,7 @@
 #include "nvapi.h"
 
 #include "Timer.h"
-#include "nvidiaShutterGlasses.h"
+#include "ShutterGlasses.h"
 #include "resource.h"
 
 using namespace DirectX;
