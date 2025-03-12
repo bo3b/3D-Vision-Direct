@@ -39,13 +39,13 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "shutterGlasses.h"
+
 #include <windows.h>
+#include <string>
 #include <vector>
-#include <sstream>
-#include <iostream>
 
 #include "nvapi.h"
-#include "shutterGlasses.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
