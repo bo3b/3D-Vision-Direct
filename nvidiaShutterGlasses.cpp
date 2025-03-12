@@ -260,7 +260,7 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
     if (pipe_usb_swaps != INVALID_HANDLE_VALUE)
         CloseHandle(pipe_usb_swaps);
 
-    DisableLightBoost_NVIDIA();
+    DisableLightBoost();
 
     NvAPI_Unload();
 }
@@ -385,21 +385,16 @@ void NvidiaShutterGlasses::SetRightEye()
 // As opposed to running external tools like CRU where you can do anything.
 //
 
-//#include "NvAPI.h"
-//#include <adl_sdk.h>
-
 // Get current display format and timing for an NVidia display.
 // Output details to VS Output for sanity checks.
 // If we determine it's a PG278QR running at 120Hz, we'll set flag as OK.
 
-// TODO: Can probably just name this GetCurrentResolution, and decide
-//  internal to the routine to use NVidia or AMD APIs. Outside caller
-//  does not care.
-
-NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
+NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 {
     NvAPI_Status status;
 
+    // TODO: Find GPU in system, from Windows, decide to use AMD or NVidia
+    
     // We only can expect to use primary display?
     // TODO: seems like we could allow syncing on an alternate display.
     //status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
@@ -473,7 +468,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
     OutputDebugStringA(vs_out.str().c_str());
 
     // If we are running a known good monitor, let's mark it valid and thus
-    // enable the EnableLightBoost_NVIDIA call.
+    // enable the EnableLightBoost call.
     if (timing.etc.rrx1k == 119998 && timing.VTotal == 1525 && timing.HVisible == 2560 && timing.VVisible == 1440)
     {
         PrimaryDisplayID = display_ids[0].displayId;
@@ -492,7 +487,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution_NVIDIA()
 // using this approach gives the same monitor flash/setup as when 3D Vision is
 // activated in a game.
 
-NvAPI_Status NvidiaShutterGlasses::EnableLightBoost_NVIDIA()
+NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
 {
     NvAPI_Status status;
 
@@ -557,7 +552,7 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost_NVIDIA()
 
 // Restore the previous setting upon exit.
 
-NvAPI_Status NvidiaShutterGlasses::DisableLightBoost_NVIDIA()
+NvAPI_Status NvidiaShutterGlasses::DisableLightBoost()
 {
     NvAPI_Status status;
 
@@ -569,83 +564,45 @@ NvAPI_Status NvidiaShutterGlasses::DisableLightBoost_NVIDIA()
     return status;
 }
 
+// Prototype setup for AMD support, untested.
+// 
+//#include <adl_sdk.h>
+//
 //void GetCurrentResolution_AMD()
 //{
-//	int iAdapterIndex = 0;
-//	ADLDisplayMode displayMode;
-//	if (ADL_Display_Modes_Get(iAdapterIndex, -1, &displayMode) == ADL_OK) {
-//		std::cout << "AMD Current Resolution: " << displayMode.iXRes << "x" << displayMode.iYRes
-//			<< " @ " << displayMode.iRefreshRate << "Hz" << std::endl;
-//	}
-//	else {
-//		std::cerr << "Failed to retrieve AMD display settings." << std::endl;
-//	}
+//    int            iAdapterIndex = 0;
+//    ADLDisplayMode displayMode;
+//    if (ADL_Display_Modes_Get(iAdapterIndex, -1, &displayMode) == ADL_OK)
+//    {
+//        std::cout << "AMD Current Resolution: " << displayMode.iXRes << "x" << displayMode.iYRes
+//                  << " @ " << displayMode.iRefreshRate << "Hz" << std::endl;
+//    }
+//    else
+//    {
+//        std::cerr << "Failed to retrieve AMD display settings." << std::endl;
+//    }
 //}
-
-//bool SetCustomResolution_NVIDIA(int width, int height, int refreshRate)
-//{
-//	NvAPI_Status status;
-//	NvDisplayHandle hNvDisplay = NULL;
-//	NV_TIMING timing = {};
 //
-//	status = NvAPI_Initialize();
-//	if (status != NVAPI_OK) {
-//		std::cerr << "NvAPI Initialization failed" << std::endl;
-//		return false;
-//	}
-//
-//	status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
-//	if (status != NVAPI_OK) {
-//		std::cerr << "Failed to get display handle" << std::endl;
-//		return false;
-//	}
-//
-//	status = NvAPI_DISP_GetTiming(hNvDisplay, &timing);
-//	if (status != NVAPI_OK) {
-//		std::cerr << "Failed to retrieve current timing parameters" << std::endl;
-//		return false;
-//	}
-//
-//	timing.horizontalTotal += 10;
-//	timing.verticalTotal += 5;
-//
-//	status = NvAPI_DISP_TryCustomDisplay(hNvDisplay, &timing);
-//	if (status != NVAPI_OK) {
-//		std::cerr << "Failed to set custom resolution" << std::endl;
-//		return false;
-//	}
-//
-//	std::cout << "Custom resolution set successfully on NVIDIA." << std::endl;
-//	return true;
-//}
-
 //bool SetCustomResolution_AMD(int width, int height, int refreshRate)
 //{
-//	int iAdapterIndex = 0;
-//	ADLDisplayMode displayMode = { width, height, refreshRate };
+//    int            iAdapterIndex = 0;
+//    ADLDisplayMode displayMode   = { width, height, refreshRate };
 //
-//	displayMode.iXRes = width;
-//	displayMode.iYRes = height;
-//	displayMode.iRefreshRate = refreshRate;
-//	displayMode.iTimingStandard = ADL_DL_TIMING_STANDARD_CVT;
-//	displayMode.iHTotal += 10; // Adjust horizontal total pixels
-//	displayMode.iVTotal += 5;  // Adjust vertical total pixels
+//    displayMode.iXRes           = width;
+//    displayMode.iYRes           = height;
+//    displayMode.iRefreshRate    = refreshRate;
+//    displayMode.iTimingStandard = ADL_DL_TIMING_STANDARD_CVT;
+//    displayMode.iHTotal += 10;  // Adjust horizontal total pixels
+//    displayMode.iVTotal += 5;   // Adjust vertical total pixels
 //
-//	if (ADL_Display_Modes_Set(iAdapterIndex, -1, &displayMode) == ADL_OK) {
-//		std::cout << "Custom resolution set successfully on AMD." << std::endl;
-//		return true;
-//	}
-//	else {
-//		std::cerr << "Failed to set custom resolution on AMD." << std::endl;
-//		return false;
-//	}
-//}
-
-//int main()
-//{
-//	GetCurrentResolution_NVIDIA();
-//	GetCurrentResolution_AMD();
-//	SetCustomResolution_NVIDIA(1920, 1080, 110);
-//	SetCustomResolution_AMD(1920, 1080, 110);
-//	return 0;
+//    if (ADL_Display_Modes_Set(iAdapterIndex, -1, &displayMode) == ADL_OK)
+//    {
+//        std::cout << "Custom resolution set successfully on AMD." << std::endl;
+//        return true;
+//    }
+//    else
+//    {
+//        std::cerr << "Failed to set custom resolution on AMD." << std::endl;
+//        return false;
+//    }
 //}

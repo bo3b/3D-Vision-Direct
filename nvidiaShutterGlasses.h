@@ -63,9 +63,9 @@ public:
     void SetLeftEye();
     void SetRightEye();
 
-    NvAPI_Status GetCurrentResolution_NVIDIA();
-    NvAPI_Status EnableLightBoost_NVIDIA();
-    NvAPI_Status DisableLightBoost_NVIDIA();
+    NvAPI_Status GetCurrentResolution();
+    NvAPI_Status EnableLightBoost();
+    NvAPI_Status DisableLightBoost();
 
 private:
     struct monitor_info

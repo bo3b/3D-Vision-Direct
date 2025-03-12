@@ -301,7 +301,7 @@ void enable_lightboost()
 {
     NvAPI_Status status;
 
-    status = g_shutterGlasses.GetCurrentResolution_NVIDIA();
+    status = g_shutterGlasses.GetCurrentResolution();
     if (status != NVAPI_OK)
     {
         g_out << "!!! Fail !!!" << std::endl
@@ -313,7 +313,7 @@ void enable_lightboost()
 
     // Since we could get the resolution successfully, let's go ahead and enable
     // LightBoost.  We'll not error out if it fails to setup.
-    status = g_shutterGlasses.EnableLightBoost_NVIDIA();
+    status = g_shutterGlasses.EnableLightBoost();
     if (status != NVAPI_OK)
     {
         g_out << "!!! Fail !!!" << std::endl
