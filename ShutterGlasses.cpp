@@ -1,4 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+﻿////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "ShutterGlasses.h"
 
@@ -14,6 +14,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 
 using std::getline;
 using std::wifstream;
@@ -164,17 +165,17 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
             wstring line;
             getline(fin, line);
 
-            wstring searchstr = L"Monitor:";
+            wstring searchstr = L"Monitor: ";
             size_t  found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.monitor_name = (line.substr(found + searchstr.length()));
 
-            searchstr = L"EDID_ID:";
+            searchstr = L"EDID_ID: ";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.monitor_EDID = (line.substr(found + searchstr.length()));
 
-            searchstr = L"RefreshRateHz:";
+            searchstr = L"RefreshRateHz: ";
             found     = line.find(searchstr);
             if (found != std::string::npos)
                 ini.refresh_rate = (stof(line.substr(found + searchstr.length())));
@@ -379,7 +380,7 @@ void NvidiaShutterGlasses::SetRightEye()
 
 // This will change the monitor timings, so that it will enable LightBoost.
 //
-// After long and tedious research, it turns out simple. LightBoost turns
+// After long and tedious research (4 years!), it turns out simple. LightBoost turns
 // on if we bump the back porch of the timing signal. This can be done in CreateCustomResolution
 // in NVidia control panel, but we want to do it programmatically to avoid external tools.
 //
@@ -391,6 +392,74 @@ void NvidiaShutterGlasses::SetRightEye()
 // a level of safety as well, since they are pretty serious about their debugging.
 // As opposed to running external tools like CRU where you can do anything.
 //
+// This is tested as working correctly on a PG278QR monitor.
+
+// Fetch the EDID from the NV_EDID struct. This is a giant nasty hairball of incredibly
+// bad design decisions, so requires bit twiddling I fetched from ChatGPT.
+
+static wstring parse_monitor_EDID(NvPhysicalGpuHandle main_gpu)
+{
+    NvAPI_Status status;
+    NV_EDID      raw_edid = {};
+
+    // Get NvDisplayHandle for the 0 based, Main Display.
+    NvDisplayHandle hDisplay;
+    status = NvAPI_EnumNvidiaDisplayHandle(0, &hDisplay);
+    if (status != NVAPI_OK)
+    {
+        vs_out << "Failed to get NvDisplayHandle for Main Display. Status: " << status << std::endl;
+        OutputDebugString(vs_out.str().c_str());
+        return L"";
+    }
+
+    // Use the Main Display NvDisplayHandle to fetch the outputID bit array.
+    NvU32 outputId;
+    status = NvAPI_GetAssociatedDisplayOutputId(hDisplay, &outputId);
+    if (status != NVAPI_OK)
+    {
+        vs_out << "Failed to get display output ID. Status: " << status << std::endl;
+        OutputDebugString(vs_out.str().c_str());
+        return L"";
+    }
+
+    // Now we can use the outputID array to fetch the EDID data.
+    raw_edid.version    = NV_EDID_VER3;
+    raw_edid.sizeofEDID = sizeof(raw_edid);
+    status              = NvAPI_GPU_GetEDID(main_gpu, outputId, &raw_edid);
+    if (status != NVAPI_OK)
+    {
+        vs_out << "Failed to retrieve monitor EDID string. Status: " << status << std::endl;
+        OutputDebugString(vs_out.str().c_str());
+        return L"";
+    }
+
+    // Ensure EDID has the standard 128-byte block (256 in current variant)
+    if (raw_edid.sizeofEDID < 128)
+    {
+        vs_out << "Failed to retrieve monitor EDID string. Bad sizeofEDID: " << raw_edid.sizeofEDID << std::endl;
+        OutputDebugString(vs_out.str().c_str());
+        return L"";
+    }
+
+    // Use Manufacturer ID (Bytes 8–9) to create the 3-letter vendor code
+    // This is some BCD encoded madness with a 5 bit alphabet.
+    uint16_t vendor_id      = (raw_edid.EDID_Data[8] << 8) | raw_edid.EDID_Data[9];
+    char     vendor_code[4] = {};
+    vendor_code[0]          = ((vendor_id >> 10) & 0x1F) + 'A' - 1;
+    vendor_code[1]          = ((vendor_id >> 5) & 0x1F) + 'A' - 1;
+    vendor_code[2]          = (vendor_id & 0x1F) + 'A' - 1;
+    vendor_code[3]          = '\0';
+    wstring vendor_string(vendor_code, vendor_code + 3);
+
+    // Use Product/Model ID (Bytes 10–11) to create a Hexadecimal string (little endian swap)
+    uint16_t           product_id = (raw_edid.EDID_Data[11] << 8) | raw_edid.EDID_Data[10];
+    std::wstringstream product_stream;
+    product_stream << std::uppercase << std::hex << std::setw(4) << std::setfill(L'0');  // Set to print HEX
+    product_stream << product_id;
+    wstring product_code = product_stream.str();
+
+    return vendor_string + L"_" + product_code;
+}
 
 // Get current display format and timing for an NVidia display.
 // Output details to VS Output for sanity checks.
@@ -399,6 +468,7 @@ void NvidiaShutterGlasses::SetRightEye()
 NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 {
     NvAPI_Status status;
+    wstring      monitor_EDID = L"";
 
     // TODO: Find GPU in system, from Windows, decide to use AMD or NVidia
 
@@ -438,6 +508,11 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
         return status;
     }
 
+    // Get the EDID as a wstring, so we can determine if it is a monitor on our whitelist.
+    // Only doing Main Display for now.
+
+    wstring monitor_edid = parse_monitor_EDID(gpu_handles[0]);
+
     // This seems to work for zeroed out NV_TIMING_INPUT.
     // This is what we want- current timings that are active, not hypothetical variants
     // that might be enabled someday.
@@ -456,7 +531,8 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
         return status;
     }
 
-    vs_out << "Display Timing Details - EDID: " << std::endl;
+    vs_out << std::endl;
+    vs_out << "Display Timing Details - EDID: " << monitor_edid << std::endl;
     vs_out << "----------------------" << std::endl;
     vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << std::endl;
     vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << std::endl;
@@ -476,7 +552,8 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 
     // If we are running a known good monitor, let's mark it valid and thus
     // enable the EnableLightBoost call.
-    if (timing.etc.rrx1k == 119998 && timing.VTotal == 1525 && timing.HVisible == 2560 && timing.VVisible == 1440)
+    // For the moment, this will just verify the first and only record from MonitorTimings.ini to check EDID
+    if (monitors.front().monitor_EDID == monitor_edid)
     {
         PrimaryDisplayID = display_ids[0].displayId;
     }
@@ -530,19 +607,21 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     // The magic trick. Bump the VTotal by 5, and voila- LightBoost is on.
     // Also key is bumping the pixel clock to match the longer frame. Without
     // this the glasses were ever slightly out of sync with monitor.
-    if (lightboost.timing.VTotal == 1525)
-    {
-        NvU16 standard_vtotal = lightboost.timing.VTotal;
-        NvU32 standard_pclk   = lightboost.timing.pclk;
+    //
+    // Sanity checks were done earlier for whether this is acceptable to dirk
+    // around the timings of the monitor. If it's in MonitorTimings.ini and
+    // the EDID matches, we consider it OK.
 
-        lightboost.timing.VTotal = standard_vtotal + 5;
-        lightboost.timing.pclk   = standard_pclk * lightboost.timing.VTotal / standard_vtotal;  // deliberately no floats
+    NvU16 standard_vtotal = lightboost.timing.VTotal;
+    NvU32 standard_pclk   = lightboost.timing.pclk;
 
-        vs_out << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << std::endl;
-        vs_out << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << std::endl;
-        vs_out << "----------------------" << std::endl;
-        OutputDebugString(vs_out.str().c_str());
-    }
+    lightboost.timing.VTotal = standard_vtotal + 5;
+    lightboost.timing.pclk   = standard_pclk * lightboost.timing.VTotal / standard_vtotal;  // deliberately no floats
+
+    vs_out << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << std::endl;
+    vs_out << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << std::endl;
+    vs_out << "----------------------" << std::endl;
+    OutputDebugString(vs_out.str().c_str());
 
     // Enable LightBoost timing. If this fails for some reason and returns an error, that is OK,
     // we won't error out.
