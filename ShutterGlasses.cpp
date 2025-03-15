@@ -496,7 +496,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 
     // Get all display IDs connected to the first GPU
     NV_GPU_DISPLAYIDS display_ids[NVAPI_MAX_DISPLAYS] = {};
-    display_ids->version                              = NV_GPU_DISPLAYIDS_VER2;
+    display_ids->version                              = NV_GPU_DISPLAYIDS_VER1;
     NvU32 display_count                               = 1;  // Only do first one for now.
 
     status = NvAPI_GPU_GetConnectedDisplayIds(gpu_handles[0], display_ids, &display_count, 0);
