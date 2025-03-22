@@ -262,6 +262,11 @@ void NvidiaShutterGlasses::WakeEmitter()
     }
 }
 
+// Because this object is standalone, and not wrapping a DX11 object, we will
+// go ahead and use the ctor/dtor c++ style.
+//
+// Note, anything derived from IUnknown should follow DX11 model.
+
 NvidiaShutterGlasses::~NvidiaShutterGlasses()
 {
     if (pipe_usb_init != INVALID_HANDLE_VALUE)
@@ -497,7 +502,7 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 
     // Get all display IDs connected to the first GPU
     NV_GPU_DISPLAYIDS display_ids[NVAPI_MAX_DISPLAYS] = {};
-    display_ids->version                              = NV_GPU_DISPLAYIDS_VER1;
+    display_ids->version                              = NV_GPU_DISPLAYIDS_VER;
     NvU32 display_count                               = 1;  // Only do first one for now.
 
     status = NvAPI_GPU_GetConnectedDisplayIds(gpu_handles[0], display_ids, &display_count, 0);
@@ -554,7 +559,12 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     // If we are running a known good monitor, let's mark it valid and thus
     // enable the EnableLightBoost call.
     // For the moment, this will just verify the first and only record from MonitorTimings.ini to check EDID
-    if (monitors.front().monitor_EDID == monitor_edid)
+    // If we are running a known good monitor, let's mark it valid and thus enable the
+    // EnableLightBoost call. It needs to be the known monitor, and refresh rate must
+    // match. We match against the rounded to decimal and logical version, because there
+    // is a lot of slop in these numbers like 119.998 vs. 119.997 in monitortimings.ini
+    bool refresh_matches = round(monitors.front().refresh_rate) == timing.etc.rr;
+    if (monitors.front().monitor_EDID == monitor_edid && refresh_matches)
     {
         PrimaryDisplayID = display_ids[0].displayId;
     }
