@@ -20,11 +20,7 @@ using std::endl;
 using std::getline;
 using std::wifstream;
 using std::wstring;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Output stream so we can redirect anything here to VS Output.
-std::wstringstream vs_out;
+using std::wstringstream;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -84,9 +80,10 @@ static wstring find_usb_device()
             if (usb_name.find(hardware_IDs[a]) != std::wstring::npos)
             {
                 SetupDiDestroyDeviceInfoList(device_info);
-                vs_out << "USB Device ID: " << hardware_IDs[a] << "       "
-                       << "  USB Device Name: " << usb_name << "       " << endl;
-                OutputDebugString(vs_out.str().c_str());
+                wstringstream log_s;
+                log_s << "USB Device ID: " << hardware_IDs[a] << "       "
+                      << "  USB Device Name: " << usb_name << "       " << endl;
+                OutputDebugString(log_s.str().c_str());
                 return usb_name;
             }
         }
@@ -114,11 +111,12 @@ DWORD write_to_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
     BOOL  result = WriteFile(pipe, buffer, count, &bytes_written, nullptr);
     if (!result)
     {
-        DWORD errorCode = GetLastError();
-        vs_out << "!!! WriteFile failed. Error Code: " << errorCode
-               << " | Bytes attempted: " << count
-               << " | Bytes written: " << bytes_written << endl;
-        OutputDebugString(vs_out.str().c_str());
+        DWORD         errorCode = GetLastError();
+        wstringstream log_s;
+        log_s << "!!! WriteFile failed. Error Code: " << errorCode
+              << " | Bytes attempted: " << count
+              << " | Bytes written: " << bytes_written << endl;
+        OutputDebugString(log_s.str().c_str());
         DebugBreak();
     }
     return bytes_written;
@@ -131,11 +129,12 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
     BOOL  result = ReadFile(pipe, buffer, count, &bytes_read, nullptr);
     if (!result)
     {
-        DWORD errorCode = GetLastError();
-        vs_out << "!!! ReadFile failed. Error Code: " << errorCode
-               << " | Bytes attempted: " << count
-               << " | Bytes written: " << bytes_read << endl;
-        OutputDebugString(vs_out.str().c_str());
+        DWORD         errorCode = GetLastError();
+        wstringstream log_s;
+        log_s << "!!! ReadFile failed. Error Code: " << errorCode
+              << " | Bytes attempted: " << count
+              << " | Bytes written: " << bytes_read << endl;
+        OutputDebugString(log_s.str().c_str());
         DebugBreak();
     }
     return bytes_read;
@@ -145,11 +144,16 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 
 NvidiaShutterGlasses::NvidiaShutterGlasses()
 {
+    wstringstream log_s;
+    log_s << "NvidiaShutterGlasses::NvidiaShutterGlasses(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
+
     NvAPI_Status status = NvAPI_Initialize();
     if (status != NVAPI_OK)
     {
-        vs_out << "!!! NvAPI Initialization failed" << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "!!! NvAPI Initialization failed" << endl;
+        OutputDebugString(log_s.str().c_str());
         // TODO: force exception, save bool, something?
     }
 
@@ -224,6 +228,10 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 
 void NvidiaShutterGlasses::WakeEmitter()
 {
+    wstringstream log_s;
+    log_s << "NvidiaShutterGlasses::WakeEmitter(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
+
     // This sequence is here to wake up a sleeping emitter. If we immediately jump
     // in and start hitting the emitter, we get a BSOD, apparently because the USB
     // pipe is not running correctly.  The delay itself is not sufficient, the pipe
@@ -232,8 +240,9 @@ void NvidiaShutterGlasses::WakeEmitter()
     wake = open_usb_device_filename(L"PIPE02");
     if (wake == INVALID_HANDLE_VALUE)
     {
-        vs_out << "!!! Failed to open usb Wake pipe? Handle: " << wake << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "!!! Failed to open usb Wake pipe? Handle: " << wake << endl;
+        OutputDebugString(log_s.str().c_str());
         DebugBreak();
     }
     Sleep(100);
@@ -249,15 +258,17 @@ void NvidiaShutterGlasses::WakeEmitter()
     pipe_usb_init = open_usb_device_filename(L"PIPE02");
     if (pipe_usb_init == INVALID_HANDLE_VALUE)
     {
-        vs_out << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << endl;
+        OutputDebugString(log_s.str().c_str());
         DebugBreak();
     }
     pipe_usb_swaps = open_usb_device_filename(L"PIPE00");
     if (pipe_usb_swaps == INVALID_HANDLE_VALUE)
     {
-        vs_out << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << endl;
+        OutputDebugString(log_s.str().c_str());
         DebugBreak();
     }
 }
@@ -284,6 +295,10 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 //refresh variables and initialize usb device
 void NvidiaShutterGlasses::InitEmitter()
 {
+    wstringstream log_s;
+    log_s << "NvidiaShutterGlasses::InitEmitter(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
+
     monitor_info main = monitors.front();
 
     float rate = main.refresh_rate;
@@ -308,20 +323,21 @@ void NvidiaShutterGlasses::InitEmitter()
     uint32_t w       = (int)(-w_us * 12 + 1);  // T2 runs at 12MHz
     uint32_t timeout = (int)(rate * 4);        // idle timeout(number of frames)
 
-    vs_out << endl
-           << "----- From MonitorTimings.ini ------" << endl
-           << "Monitor: " << main.monitor_name << "       " << endl
-           << "EDID ID: " << main.monitor_EDID << "       " << endl
-           << "ScreenRefresh: " << rate << " Hz      " << endl
-           << "x: " << x_us << "us                   " << endl
-           << "y: " << y_us << "us                   " << endl
-           << "z: " << z_us << "us                   " << endl
-           << "w: " << w_us << "us                   " << endl
-           << endl
-           << "--------------------------------------" << endl
-           << "                                        " << endl
-           << "                                        " << endl;
-    OutputDebugString(vs_out.str().c_str());
+    {
+        wstringstream log_s;
+        log_s << endl
+              << "----- From monitors.ini ------" << endl
+              << "Monitor: " << main.monitor_name << "       " << endl
+              << "EDID ID: " << main.monitor_EDID << "       " << endl
+              << "ScreenRefresh: " << rate << " Hz      " << endl
+              << "x: " << x_us << "us                   " << endl
+              << "y: " << y_us << "us                   " << endl
+              << "z: " << z_us << "us                   " << endl
+              << "w: " << w_us << "us                   " << endl
+              << "--------------------------------------" << endl
+              << "                                        " << endl;
+        OutputDebugString(log_s.str().c_str());
+    }
 
     // USB emitter Init sequence to endpoint 2
     //
@@ -413,8 +429,9 @@ static wstring parse_monitor_EDID(NvPhysicalGpuHandle main_gpu)
     status = NvAPI_EnumNvidiaDisplayHandle(0, &hDisplay);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to get NvDisplayHandle for Main Display. Status: " << status << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to get NvDisplayHandle for Main Display. Status: " << status << endl;
+        OutputDebugString(log_s.str().c_str());
         return L"";
     }
 
@@ -423,8 +440,9 @@ static wstring parse_monitor_EDID(NvPhysicalGpuHandle main_gpu)
     status = NvAPI_GetAssociatedDisplayOutputId(hDisplay, &outputId);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to get display output ID. Status: " << status << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to get display output ID. Status: " << status << endl;
+        OutputDebugString(log_s.str().c_str());
         return L"";
     }
 
@@ -434,16 +452,18 @@ static wstring parse_monitor_EDID(NvPhysicalGpuHandle main_gpu)
     status              = NvAPI_GPU_GetEDID(main_gpu, outputId, &raw_edid);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to retrieve monitor EDID string. Status: " << status << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to retrieve monitor EDID string. Status: " << status << endl;
+        OutputDebugString(log_s.str().c_str());
         return L"";
     }
 
     // Ensure EDID has the standard 128-byte block (256 in current variant)
     if (raw_edid.sizeofEDID < 128)
     {
-        vs_out << "Failed to retrieve monitor EDID string. Bad sizeofEDID: " << raw_edid.sizeofEDID << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to retrieve monitor EDID string. Bad sizeofEDID: " << raw_edid.sizeofEDID << endl;
+        OutputDebugString(log_s.str().c_str());
         return L"";
     }
 
@@ -473,8 +493,12 @@ static wstring parse_monitor_EDID(NvPhysicalGpuHandle main_gpu)
 
 NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 {
-    NvAPI_Status status;
-    wstring      monitor_EDID = L"";
+    wstringstream log_s;
+    NvAPI_Status  status;
+    wstring       monitor_EDID = L"";
+
+    log_s << "NvidiaShutterGlasses::GetCurrentResolution(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
 
     // TODO: Find GPU in system, from Windows, decide to use AMD or NVidia
 
@@ -483,8 +507,8 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     //status = NvAPI_EnumNvidiaDisplayHandle(0, &hNvDisplay);
     //if (status != NVAPI_OK)
     //{
-    //	vs_out << "!!! Failed to get primary display handle" << endl;
-    //	OutputDebugString(vs_out.str().c_str());
+    //	log_s << "!!! Failed to get primary display handle" << endl;
+    //	OutputDebugString(log_s.str().c_str());
     //	return false;
     //}
 
@@ -494,9 +518,10 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_EnumPhysicalGPUs(gpu_handles, &gpu_count);
     if (status != NVAPI_OK)
     {
-        vs_out << "!!! Failed to enumerate NVidia GPUs - none in system?" << endl;
+        wstringstream log_s;
+        log_s << "!!! Failed to enumerate NVidia GPUs - none in system?" << endl;
         NvAPI_Unload();
-        OutputDebugString(vs_out.str().c_str());
+        OutputDebugString(log_s.str().c_str());
         return status;
     }
 
@@ -508,9 +533,10 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_GPU_GetConnectedDisplayIds(gpu_handles[0], display_ids, &display_count, 0);
     if (status != NVAPI_OK || display_count == 0)
     {
-        vs_out << "!!! Failed to get connected display IDs. Count: " << display_count << endl;
+        wstringstream log_s;
+        log_s << "!!! Failed to get connected display IDs. Count: " << display_count << endl;
         NvAPI_Unload();
-        OutputDebugString(vs_out.str().c_str());
+        OutputDebugString(log_s.str().c_str());
         return status;
     }
 
@@ -532,32 +558,34 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_DISP_GetTiming(display_ids[0].displayId, &current, &timing);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to retrieve current timing parameters" << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to retrieve current timing parameters" << endl;
+        OutputDebugString(log_s.str().c_str());
         return status;
     }
 
-    vs_out << endl;
-    vs_out << "Display Timing Details - EDID: " << monitor_edid << endl;
-    vs_out << "----------------------" << endl;
-    vs_out << "Timing standard: " << timing.etc.status << "  Name: \"" << timing.etc.name << "\"" << endl;
-    vs_out << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << endl;
-    vs_out << "** Pixel Clock: " << timing.pclk << endl;
-    vs_out << "Resolution: " << timing.HVisible << " x " << timing.VVisible << endl;
-    vs_out << "** Vertical total pixels: " << timing.VTotal << "  Horizontal total pixels: " << timing.HTotal << endl;
-    vs_out << "----------------------" << endl;
+    {
+        wstringstream log_s;
+        log_s << endl;
+        log_s << "Display Timing Details - EDID: " << monitor_edid << endl;
+        log_s << "----------------------" << endl;
+        log_s << "Timing standard: " << timing.etc.status << "  Name: \"" << reinterpret_cast<char*>(timing.etc.name) << "\"" << endl;
+        log_s << "Refresh Rate: " << timing.etc.rr << " Hz" << "  Physical: " << timing.etc.rrx1k / 1000.00f << endl;
+        log_s << "** Pixel Clock: " << timing.pclk << endl;
+        log_s << "Resolution: " << timing.HVisible << " x " << timing.VVisible << endl;
+        log_s << "** Vertical total pixels: " << timing.VTotal << "  Horizontal total pixels: " << timing.HTotal << endl;
+        log_s << "----------------------" << endl;
+    }
 
     //if (timing.TimingFlags & NV_TIMING_FLAGS_INTERLACED)
-    //	vs_out << "Scan Type: Interlaced" << endl;
+    //	log_s << "Scan Type: Interlaced" << endl;
     //else
-    //	vs_out << "Scan Type: Progressive" << endl;
+    //	log_s << "Scan Type: Progressive" << endl;
 
     //if (timing.TimingFlags & NV_TIMING_FLAGS_PREFERRED)
-    //	vs_out << "Status: Preferred Timing" << endl;
-    OutputDebugString(vs_out.str().c_str());
+    //	log_s << "Status: Preferred Timing" << endl;
+    OutputDebugString(log_s.str().c_str());
 
-    // If we are running a known good monitor, let's mark it valid and thus
-    // enable the EnableLightBoost call.
     // For the moment, this will just verify the first and only record from MonitorTimings.ini to check EDID
     // If we are running a known good monitor, let's mark it valid and thus enable the
     // EnableLightBoost call. It needs to be the known monitor, and refresh rate must
@@ -586,6 +614,10 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
 {
     NvAPI_Status status;
 
+    wstringstream log_s;
+    log_s << "NvidiaShutterGlasses::EnableLightBoost(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
+
     if (PrimaryDisplayID == 0xDEADBEEF)
         return NVAPI_NVIDIA_DISPLAY_NOT_FOUND;
 
@@ -597,8 +629,9 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     status                  = NvAPI_DISP_GetTiming(PrimaryDisplayID, &current, &timing);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
+        OutputDebugString(log_s.str().c_str());
         return status;
     }
 
@@ -629,20 +662,26 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     lightboost.timing.VTotal = standard_vtotal + 5;
     lightboost.timing.pclk   = standard_pclk * lightboost.timing.VTotal / standard_vtotal;  // deliberately no floats
 
-    vs_out << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << endl;
-    vs_out << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << endl;
-    vs_out << "----------------------" << endl;
-    OutputDebugString(vs_out.str().c_str());
+    {
+        wstringstream log_s;
+        log_s << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << endl;
+        log_s << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << endl;
+        log_s << "----------------------" << endl;
+        OutputDebugString(log_s.str().c_str());
+    }
 
     // Enable LightBoost timing. If this fails for some reason and returns an error, that is OK,
     // we won't error out.
     status = NvAPI_DISP_TryCustomDisplay(&PrimaryDisplayID, 1, &lightboost);
     if (status != NVAPI_OK)
     {
-        vs_out << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
-        OutputDebugString(vs_out.str().c_str());
+        wstringstream log_s;
+        log_s << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
+        OutputDebugString(log_s.str().c_str());
         return status;
     }
+
+    OutputDebugString(L"->EnableLightBoost via NvAPI_DISP_TryCustomDisplay successfully.\n");
 
     return status;
 }
@@ -653,10 +692,17 @@ NvAPI_Status NvidiaShutterGlasses::DisableLightBoost()
 {
     NvAPI_Status status;
 
+    wstringstream log_s;
+    log_s << "NvidiaShutterGlasses::DisableLightBoost(" << typeid(*this).name() << "@" << this << ")" << endl;
+    OutputDebugString(log_s.str().c_str());
+
     if (PrimaryDisplayID == 0xDEADBEEF)
         return NVAPI_NVIDIA_DISPLAY_NOT_FOUND;
 
     status = NvAPI_DISP_RevertCustomDisplayTrial(&PrimaryDisplayID, 1);
+
+    log_s << "-> DisableLightBoost by NvAPI_DISP_RevertCustomDisplayTrial: " << status << endl;
+    OutputDebugString(log_s.str().c_str());
 
     return status;
 }
