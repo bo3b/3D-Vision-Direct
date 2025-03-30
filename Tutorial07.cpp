@@ -112,6 +112,17 @@
 //   that extra delay. Doing the NvAPI_DISP_RevertCustomDisplayTrial works, and seems
 //   to match NVidia 3D Vision behavior. This seems superior to requiring a specific
 //   manual or external resolution profile, because we can do all this inline.
+//
+//  Adding new monitor, the early g-sync prototype that was a board to install in
+//  I think a PG248Q. A 1080p monitor. With the board installed it shows as:
+//  NVIDIA G-SYNC 241910(G-SYNC Capable). And importantly, the ID: NVD_FFFE.
+//  Changing the maxpixels by +5 also enables 3D mode as shown in the OSD, and
+//  the screen goes brighter. It does not properly return to non-3D mode, but I
+//  think LightBoost is on.
+//  I don't know what the shutter glasses timing should be for this monitor, but
+//  it's very likely to be the same as the PG248Q, which appears to be the same
+//  as the PG278QR. When tested, it seems to sync properly.
+//
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
