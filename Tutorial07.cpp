@@ -127,6 +127,7 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi1_5.h>
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
@@ -135,6 +136,7 @@
 #include <string>
 #include <iomanip>
 #include <thread>
+#include <dwmapi.h>
 
 #include "nvapi.h"
 
@@ -175,14 +177,14 @@ struct shared_CB
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-HINSTANCE g_hInst = nullptr;
-HWND      g_hWnd  = nullptr;
+HINSTANCE g_hInst      = nullptr;
+HWND      g_hWnd       = nullptr;
+bool      g_fullScreen = false;
 
 ID3D11Device*        g_pd3dDevice        = nullptr;
 ID3D11DeviceContext* g_pImmediateContext = nullptr;
 IDXGISwapChain*      g_pSwapChain        = nullptr;
 
-ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
 ID3D11Texture2D*        g_pDepthStencil     = nullptr;
 ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 
@@ -198,8 +200,9 @@ XMMATRIX g_World;
 XMMATRIX g_View;
 XMMATRIX g_Projection;
 
-LONG g_ScreenWidth  = 1280;
-LONG g_ScreenHeight = 720;
+LONG g_ScreenWidth  = 1920;
+LONG g_ScreenHeight = 1080;
+UINT g_bufferCount  = 4;
 
 Timer              g_Timer;
 double             g_lastFrame = 0;
@@ -219,7 +222,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     // Before we create DX11 and windows, enable LightBoost.
-    enable_lightboost();
+    //enable_lightboost();
+
     // Safely Wake and Initialize the timing of the emitter.
     start_glasses();
 
@@ -254,6 +258,78 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
             if (GetAsyncKeyState(VK_F2) & 0x8000)
             {
                 g_shutterGlasses.ToggleEyes();
+            }
+            if (GetAsyncKeyState(VK_F4) & 0x8000)
+            {
+                try
+                {
+                    g_running = false;
+                    if (g_renderThread.joinable())
+                    {
+                        g_renderThread.join();  // Wait for it to cleanly exit.
+                    }
+
+                    g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
+
+                    g_out << ">> SetFullScreenState" << std::endl;
+                    OutputDebugStringA(g_out.str().c_str());
+
+                    g_fullScreen = !g_fullScreen;
+                    HRESULT hr   = g_pSwapChain->SetFullscreenState(g_fullScreen, nullptr);
+
+                    Sleep(100);
+                    g_out << "<< SetFullScreenState" << std::endl;
+                    OutputDebugStringA(g_out.str().c_str());
+
+                    if (FAILED(hr))
+                        DebugBreak();
+                    hr = g_pSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+                    if (FAILED(hr))
+                        DebugBreak();
+
+                    Sleep(200);
+
+                    BOOL isFullscreen = FALSE;
+                    g_pSwapChain->GetFullscreenState(&isFullscreen, nullptr);
+                    DXGI_SWAP_CHAIN_DESC desc;
+                    g_pSwapChain->GetDesc(&desc);
+                    g_out << "Post SetFullscreenState is Fullscreen: " << isFullscreen << std::endl;
+                    g_out << "Post SetFullscreenState Flags: 0x" << std::hex << desc.Flags << std::dec << std::endl;
+                    OutputDebugStringA(g_out.str().c_str());
+
+                    g_pSwapChain->Present(1, DXGI_PRESENT_RESTART);
+
+                    IDXGIFactory5* pFactory = nullptr;
+                    g_pSwapChain->GetParent(__uuidof(IDXGIFactory5), reinterpret_cast<void**>(&pFactory));
+
+                    BOOL allowTearing = FALSE;
+                    hr                = pFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing));
+                    if (FAILED(hr))
+                        DebugBreak();
+                    g_out << "Tearing support: " << allowTearing << std::endl;
+                    OutputDebugStringA(g_out.str().c_str());
+                    if (pFactory)
+                        pFactory->Release();
+
+                    hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
+					if (FAILED(hr))
+						DebugBreak();
+
+                    BOOL isDWMEnabled = FALSE;
+                    hr = DwmIsCompositionEnabled(&isDWMEnabled);
+					if (FAILED(hr))
+						DebugBreak();
+					g_out << "DWM is " << (isDWMEnabled ? "ON" : "OFF") << std::endl;
+					OutputDebugStringA(g_out.str().c_str());
+
+
+                    g_running      = true;
+                    g_renderThread = std::thread(render);  // Restart drawing
+                }
+                catch (...)
+                {
+                    DebugBreak();
+                }
             }
         }
     }
@@ -397,7 +473,7 @@ HRESULT init_dx11()
 #endif
 
     DXGI_SWAP_CHAIN_DESC sd               = {};
-    sd.BufferCount                        = 2;
+    sd.BufferCount                        = g_bufferCount;  // Quad buffered stereo
     sd.BufferDesc.Width                   = g_ScreenWidth;
     sd.BufferDesc.Height                  = g_ScreenHeight;
     sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -408,30 +484,20 @@ HRESULT init_dx11()
     sd.SampleDesc.Count                   = 1;
     sd.SampleDesc.Quality                 = 0;
     sd.Windowed                           = TRUE;
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
+    sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
     if (FAILED(hr))
         return hr;
 
+
     // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
     // Vision will not activate.
     //hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
     //if (FAILED(hr))
-    //	return hr;
-
-    // Create a render target view from the backbuffer
-    ID3D11Texture2D* back_buffer = nullptr;
-
-    hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer));
-    if (FAILED(hr))
-        return hr;
-
-    hr = g_pd3dDevice->CreateRenderTargetView(back_buffer, nullptr, &g_pRenderTargetView);
-    back_buffer->Release();
-    if (FAILED(hr))
-        return hr;
+    //    return hr;
 
     // Create depth stencil texture
     D3D11_TEXTURE2D_DESC desc_stencil = {};
@@ -461,8 +527,6 @@ HRESULT init_dx11()
     hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &stencil_view_desc, &g_pDepthStencilView);
     if (FAILED(hr))
         return hr;
-
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
 
     // This viewport is 2x the screen width.  The documentation directly contradicts
     // this usage and suggests per-eye specific ViewPorts, but this works correctly.
@@ -664,8 +728,6 @@ void cleanup_device()
         g_pDepthStencil->Release();
     if (g_pDepthStencilView)
         g_pDepthStencilView->Release();
-    if (g_pRenderTargetView)
-        g_pRenderTargetView->Release();
 
     if (g_pSwapChain)
         g_pSwapChain->Release();
@@ -711,6 +773,22 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             }
             break;
 
+        case WM_SIZE:
+            if (wParam == SIZE_MAXIMIZED || wParam == SIZE_RESTORED)
+            {
+                UINT width  = LOWORD(lParam);
+                UINT height = HIWORD(lParam);
+
+                if (g_pSwapChain)
+                {
+                    // Resize the swapchain buffers
+                    HRESULT hr = g_pSwapChain->ResizeBuffers(g_bufferCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+                    if (FAILED(hr))
+                        DebugBreak();
+                }
+            }
+            break;
+
             // Note that this tutorial does not handle resizing (WM_SIZE) requests,
             // so we created the window without the resize border.
 
@@ -724,15 +802,32 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 //--------------------------------------------------------------------------------------
 // Render current image, eye independent.
 //--------------------------------------------------------------------------------------
-void draw_cube()
+void draw_cube(bool rightEye)
 {
+    HRESULT hr;
+
+    // Create a render target view from the writable backbuffer.
+    // There is only one that is writable, and after Present(0,.) are queued for display.
+
+    ID3D11Texture2D*        back_buffer         = nullptr;
+    ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
+
+    hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer));
+    if (FAILED(hr))
+        DebugBreak();
+
+    hr = g_pd3dDevice->CreateRenderTargetView(back_buffer, nullptr, &g_pRenderTargetView);
+    back_buffer->Release();
+    if (FAILED(hr))
+        DebugBreak();
+
     //
     // Clear the back buffer
     //
     // Even though this uses the g_pRenderTargetView, it only affects half the backbuffer,
     // because we have set a specific eye.
     //
-    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, rightEye ? Colors::MidnightBlue : Colors::OliveDrab);
 
     //
     // Clear the depth buffer to 1.0 (max depth)
@@ -740,6 +835,9 @@ void draw_cube()
     // Also done on a per-eye basis.
     //
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    // Set the RenderTargetView for the specific eye buffer
+    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
 
     //
     // Render the cube
@@ -750,6 +848,8 @@ void draw_cube()
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
     g_pImmediateContext->DrawIndexed(36, 0, 0);
+
+    g_pRenderTargetView->Release();
 }
 
 void sleep_microseconds(int64_t microseconds)
@@ -826,13 +926,16 @@ void render_frame()
             cb.mProjection     = XMMatrixTranspose(cb.mProjection);
             g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-            draw_cube();
+            draw_cube(false);
         }
-        hr = g_pSwapChain->Present(1, 0);
+        g_pImmediateContext->Flush();
+        //g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
+        hr = g_pSwapChain->Present(0, 0);
         g_shutterGlasses.ToggleEyes();
         if (FAILED(hr))
         {
-            g_out << "Present failed: " << hr << std::endl;
+            HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+            g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
             OutputDebugStringA(g_out.str().c_str());
             DebugBreak();
         }
@@ -867,13 +970,15 @@ void render_frame()
             cb.mProjection     = XMMatrixTranspose(cb.mProjection);
             g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
 
-            draw_cube();
+            draw_cube(true);
         }
-        hr = g_pSwapChain->Present(1, 0);
+        g_pImmediateContext->Flush();
+        hr = g_pSwapChain->Present(0, 0);
         g_shutterGlasses.ToggleEyes();
         if (FAILED(hr))
         {
-            g_out << "Present failed: " << hr << std::endl;
+            HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+            g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
             OutputDebugStringA(g_out.str().c_str());
             DebugBreak();
         }
@@ -902,6 +1007,9 @@ void render_frame()
             out_limit--;
         }
         g_lastFrame = current_frame_time;
+
+        // Stall around to slower than refresh rate- for testing.
+        //Sleep(1000/30);
     }
     catch (const std::exception& e)
     {
