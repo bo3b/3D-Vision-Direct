@@ -355,17 +355,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     if (pFactory)
                         pFactory->Release();
 
-                    hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
-                    if (FAILED(hr))
-                        DebugBreak();
-
-                    BOOL isDWMEnabled = FALSE;
-                    hr                = DwmIsCompositionEnabled(&isDWMEnabled);
-                    if (FAILED(hr))
-                        DebugBreak();
-                    g_out << "DWM is " << (isDWMEnabled ? "ON" : "OFF") << std::endl;
-                    OutputDebugStringA(g_out.str().c_str());
-
                     g_running      = true;
                     g_renderThread = std::thread(refresh_thread);  // Restart drawing
                 }
@@ -462,9 +451,6 @@ void start_glasses()
     // Start timers and initialize the emitter timing values.
     g_shutterGlasses.WakeEmitter();
     g_shutterGlasses.InitEmitter();
-
-    // Start with left eye open.
-    g_shutterGlasses.SetLeftEye();
 }
 
 //--------------------------------------------------------------------------------------
