@@ -154,6 +154,7 @@
 #include <iomanip>
 #include <thread>
 #include <dwmapi.h>
+#include <wrl/client.h>
 
 #include "nvapi.h"
 
@@ -162,6 +163,7 @@
 #include "resource.h"
 
 using namespace DirectX;
+using Microsoft::WRL::ComPtr;
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
@@ -1061,19 +1063,22 @@ void HR(
 
 void render(void)
 {
-    IDXGISwapChain*         refresh_swapchain = nullptr;
-    ID3D11Device*           refresh_device    = nullptr;
-    ID3D11DeviceContext*    refresh_context   = nullptr;
-    ID3D11Texture2D*        back_buffer       = nullptr;
-    ID3D11Texture2D*        right_eye_tex     = nullptr;
-    ID3D11Texture2D*        left_eye_tex      = nullptr;
-    ID3D11RenderTargetView* right_eye_RTV     = nullptr;
-    ID3D11RenderTargetView* left_eye_RTV      = nullptr;
+    ComPtr<IDXGISwapChain>      refresh_swapchain;
+    ComPtr<ID3D11Device>        refresh_device;
+    ComPtr<ID3D11DeviceContext> refresh_context;
+    ComPtr<ID3D11Texture2D>     back_buffer;
+
+    ComPtr<ID3D11Texture2D>        right_eye_tex;
+    ComPtr<ID3D11Texture2D>        left_eye_tex;
+    ComPtr<ID3D11RenderTargetView> right_eye_RTV;
+    ComPtr<ID3D11RenderTargetView> left_eye_RTV;
 
     // Upon startup, we need to create our output SwapChain that is a copy of the main
     // drawing environment.  It is going to draw directly to the main window. We duplicate
     // the Description and Device Flags so as to be exactly the same output, which will
     // allow us to use CopyResource.
+    // We tweak the BufferCount and SwapEffect to avoid conflicts with whatever the
+    // game specified for them.
 
     DXGI_SWAP_CHAIN_DESC desc = {};
     g_pSwapChain->GetDesc(&desc);
@@ -1083,7 +1088,7 @@ void render(void)
 
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &refresh_swapchain, &refresh_device, nullptr, &refresh_context));
 
-    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer)));
+    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back_buffer.GetAddressOf())));
 
     // With that new swank Device and SwapChain, let's now create the two eye buffers that we
     // will Present in an alternating fashion.
@@ -1094,20 +1099,20 @@ void render(void)
     HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &right_eye_tex));
     HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &left_eye_tex));
 
-    HR(refresh_device->CreateRenderTargetView(right_eye_tex, nullptr, &right_eye_RTV));
-    HR(refresh_device->CreateRenderTargetView(left_eye_tex, nullptr, &left_eye_RTV));
+    HR(refresh_device->CreateRenderTargetView(right_eye_tex.Get(), nullptr, &right_eye_RTV));
+    HR(refresh_device->CreateRenderTargetView(left_eye_tex.Get(), nullptr, &left_eye_RTV));
 
-    refresh_context->ClearRenderTargetView(right_eye_RTV, Colors::MidnightBlue);
-    refresh_context->ClearRenderTargetView(left_eye_RTV, Colors::OliveDrab);
+    refresh_context->ClearRenderTargetView(right_eye_RTV.Get(), Colors::MidnightBlue);
+    refresh_context->ClearRenderTargetView(left_eye_RTV.Get(), Colors::OliveDrab);
 
     while (g_running)
     {
         render_frame();
 
-        refresh_context->CopyResource(back_buffer, right_eye_tex);
+        refresh_context->CopyResource(back_buffer.Get(), right_eye_tex.Get());
         HR(refresh_swapchain->Present(1, 0));
 
-        refresh_context->CopyResource(back_buffer, left_eye_tex);
+        refresh_context->CopyResource(back_buffer.Get(), left_eye_tex.Get());
         HR(refresh_swapchain->Present(1, 0));
     }
 }
