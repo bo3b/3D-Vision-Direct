@@ -944,7 +944,6 @@ void render_frame()
             draw_cube(false);
         }
         g_pImmediateContext->Flush();
-        g_shutterGlasses.ToggleEyes();
         //g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
         //hr = g_pSwapChain->Present(0, 0);
         //if (FAILED(hr))
@@ -971,8 +970,6 @@ void render_frame()
 
         // <----------------------- Right Eye -------------------------------
         //
-        // After eye-swaps, this surprisingly does nothing.
-        //g_shutterGlasses.ToggleEyes((int)0xffff0000);
         double right_eye_start = g_Timer.GetElapsedMicroseconds();
 
         {
@@ -988,7 +985,6 @@ void render_frame()
             draw_cube(true);
         }
         g_pImmediateContext->Flush();
-        g_shutterGlasses.ToggleEyes();
         //hr = g_pSwapChain->Present(0, 0);
         //if (FAILED(hr))
         //{
@@ -1111,9 +1107,11 @@ void render(void)
 
         refresh_context->CopyResource(back_buffer.Get(), right_eye_tex.Get());
         HR(refresh_swapchain->Present(1, 0));
+        g_shutterGlasses.SetRightEye();
 
         refresh_context->CopyResource(back_buffer.Get(), left_eye_tex.Get());
         HR(refresh_swapchain->Present(1, 0));
+        g_shutterGlasses.SetLeftEye();
     }
 }
 
