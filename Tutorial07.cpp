@@ -123,6 +123,23 @@
 //  it's very likely to be the same as the PG248Q, which appears to be the same
 //  as the PG278QR. When tested, it seems to sync properly.
 //
+// Bo3b: 3-30-25
+//   Lots of experiments for trying to sync properly using different Present variants.
+//   None of them work. The documentation does not appear to match what the OS actually
+//   forces. For example, if we force tearing off in both the Device, and at Present
+//   flags- the OS still forces tearing for a Present(0,0) call. This is- useless.
+//   Present(2,0) does not work either, the synchronization is off. And in any case is
+//   not what we need. Any extra buffers to the swapchain are useless, because you cannot
+//   Draw into them, they are read only. You cannot fetch GetBuffer(2,..) and have it work.
+//   Also useless. I conclude the only thing that actually works is Present(1,0).
+//
+//   With that in mind, trying a new tack of using ShareSurfaces to get our buffers to a
+//   different thread, where we can sync to the monitor with Present(1,0) for each eye.
+//   An alternate thread cannot Present using the main Device, because DX11 is not thread
+//   safe and generates multi-thread corruption errors in the debug layer.
+//   So we will create an alternate swap chain for the thread output, which will simply
+//   Present both buffers in an alternating fashion.
+//
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
@@ -156,7 +173,7 @@ HRESULT          init_dx11();
 void             cleanup_device();
 LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
 void             render_frame();
-void             render();
+void             render(void);
 
 //--------------------------------------------------------------------------------------
 // Structures
@@ -312,16 +329,15 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                         pFactory->Release();
 
                     hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
-					if (FAILED(hr))
-						DebugBreak();
+                    if (FAILED(hr))
+                        DebugBreak();
 
                     BOOL isDWMEnabled = FALSE;
-                    hr = DwmIsCompositionEnabled(&isDWMEnabled);
-					if (FAILED(hr))
-						DebugBreak();
-					g_out << "DWM is " << (isDWMEnabled ? "ON" : "OFF") << std::endl;
-					OutputDebugStringA(g_out.str().c_str());
-
+                    hr                = DwmIsCompositionEnabled(&isDWMEnabled);
+                    if (FAILED(hr))
+                        DebugBreak();
+                    g_out << "DWM is " << (isDWMEnabled ? "ON" : "OFF") << std::endl;
+                    OutputDebugStringA(g_out.str().c_str());
 
                     g_running      = true;
                     g_renderThread = std::thread(render);  // Restart drawing
@@ -472,26 +488,25 @@ HRESULT init_dx11()
     create_device_flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    DXGI_SWAP_CHAIN_DESC sd               = {};
-    sd.BufferCount                        = g_bufferCount;  // Quad buffered stereo
-    sd.BufferDesc.Width                   = g_ScreenWidth;
-    sd.BufferDesc.Height                  = g_ScreenHeight;
-    sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision emitter
-    sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow                       = g_hWnd;
-    sd.SampleDesc.Count                   = 1;
-    sd.SampleDesc.Quality                 = 0;
-    sd.Windowed                           = TRUE;
-    sd.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
+    DXGI_SWAP_CHAIN_DESC desc               = {};
+    desc.BufferCount                        = g_bufferCount;  // Quad buffered stereo
+    desc.BufferDesc.Width                   = g_ScreenWidth;
+    desc.BufferDesc.Height                  = g_ScreenHeight;
+    desc.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision emitter
+    desc.BufferDesc.RefreshRate.Denominator = 1;
+    desc.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.OutputWindow                       = g_hWnd;
+    desc.SampleDesc.Count                   = 1;
+    desc.SampleDesc.Quality                 = 0;
+    desc.Windowed                           = TRUE;
+    desc.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    desc.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
+    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
     if (FAILED(hr))
         return hr;
-
 
     // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
     // Vision will not activate.
@@ -870,7 +885,7 @@ int64_t stall     = 0;
 int     out_limit = 4;
 
 //--------------------------------------------------------------------------------------
-// Render a frame, both eyes.
+// Render a frame, both eyes. But do not Present.
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
@@ -929,16 +944,16 @@ void render_frame()
             draw_cube(false);
         }
         g_pImmediateContext->Flush();
-        //g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
-        hr = g_pSwapChain->Present(0, 0);
         g_shutterGlasses.ToggleEyes();
-        if (FAILED(hr))
-        {
-            HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-            g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-            DebugBreak();
-        }
+        //g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
+        //hr = g_pSwapChain->Present(0, 0);
+        //if (FAILED(hr))
+        //{
+        //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+        //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
+        //    OutputDebugStringA(g_out.str().c_str());
+        //    DebugBreak();
+        //}
 
         double left_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - left_eye_start) / 1000.0f;
         if (left_eye_elapsed > 18.0f)
@@ -973,18 +988,17 @@ void render_frame()
             draw_cube(true);
         }
         g_pImmediateContext->Flush();
-        hr = g_pSwapChain->Present(0, 0);
         g_shutterGlasses.ToggleEyes();
-        if (FAILED(hr))
-        {
-            HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-            g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-            DebugBreak();
-        }
+        //hr = g_pSwapChain->Present(0, 0);
+        //if (FAILED(hr))
+        //{
+        //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+        //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
+        //    OutputDebugStringA(g_out.str().c_str());
+        //    DebugBreak();
+        //}
 
         double right_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - right_eye_start) / 1000.0f;
-        ;
         if (right_eye_elapsed > 18.0f)
         {
             g_out << "!! Right frame dropped. Eye swap." << std::endl;
@@ -1025,13 +1039,95 @@ void render_frame()
     }
 }
 
-//--------------------------------------------------------------------------------------
-// // render call from the subthread.
-//--------------------------------------------------------------------------------------
-void render()
+// Frank Luna style error checking for stuff that should never fail.
+
+void HR(
+    HRESULT hresult)
 {
+    if (FAILED(hresult))
+    {
+        std::ostringstream error_log;
+
+        error_log << __FILE__ << ", " << __LINE__ << ", HR: " << hresult << std::endl;
+        OutputDebugStringA(error_log.str().c_str());
+
+        DebugBreak();
+        exit(hresult);
+    }
+}
+
+//--------------------------------------------------------------------------------------
+// Output thread:
+//  Will alternate between the R/L eye buffers to create frame-sequential output.
+//--------------------------------------------------------------------------------------
+
+void render(void)
+{
+    IDXGISwapChain*         refresh_swapchain = nullptr;
+    ID3D11Device*           refresh_device    = nullptr;
+    ID3D11DeviceContext*    refresh_context   = nullptr;
+    ID3D11Texture2D*        back_buffer       = nullptr;
+    ID3D11Texture2D*        right_eye_tex     = nullptr;
+    ID3D11Texture2D*        left_eye_tex      = nullptr;
+    ID3D11RenderTargetView* right_eye_RTV     = nullptr;
+    ID3D11RenderTargetView* left_eye_RTV      = nullptr;
+
+    // Upon startup, we need to create our output SwapChain that is a copy of the main
+    // drawing environment.  It is going to draw directly to the main window. We duplicate
+    // the Description and Device Flags so as to be exactly the same output, which will
+    // allow us to use CopyResource.
+
+    DXGI_SWAP_CHAIN_DESC desc = {};
+    g_pSwapChain->GetDesc(&desc);
+    desc.BufferCount  = 2;
+    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    UINT device_flags = g_pd3dDevice->GetCreationFlags();
+
+    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &refresh_swapchain, &refresh_device, nullptr, &refresh_context));
+
+    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer)));
+
+    // With that new swank Device and SwapChain, let's now create the two eye buffers that we
+    // will Present in an alternating fashion.
+
+    D3D11_TEXTURE2D_DESC texture_desc;
+    back_buffer->GetDesc(&texture_desc);
+
+    HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &right_eye_tex));
+    HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &left_eye_tex));
+
+    HR(refresh_device->CreateRenderTargetView(right_eye_tex, nullptr, &right_eye_RTV));
+    HR(refresh_device->CreateRenderTargetView(left_eye_tex, nullptr, &left_eye_RTV));
+
+    refresh_context->ClearRenderTargetView(right_eye_RTV, Colors::MidnightBlue);
+    refresh_context->ClearRenderTargetView(left_eye_RTV, Colors::OliveDrab);
+
     while (g_running)
     {
         render_frame();
+
+        refresh_context->CopyResource(back_buffer, right_eye_tex);
+        HR(refresh_swapchain->Present(1, 0));
+
+        refresh_context->CopyResource(back_buffer, left_eye_tex);
+        HR(refresh_swapchain->Present(1, 0));
     }
 }
+
+/*
+ *Game Thread : Locks the Texture When Rendering
+
+                         ComPtr<IDXGIKeyedMutex>
+                         pKeyedMutex;
+pSharedTexture->QueryInterface(__uuidof(IDXGIKeyedMutex), (void**)&pKeyedMutex);
+
+pKeyedMutex->AcquireSync(0, INFINITE);  // Lock the texture for writing
+// ...Render into the shared texture...
+pKeyedMutex->ReleaseSync(1);  // Unlock for the refresh thread
+
+Refresh Thread: Waits for Unlock Before Copying
+
+pKeyedMutex->AcquireSync(1, INFINITE);  // Wait for the game thread
+g_pImmediateContext->CopyResource(pBackBuffer.Get(), pSharedTexture.Get());
+pKeyedMutex->ReleaseSync(0);  // Unlock for the game thread
+*/
