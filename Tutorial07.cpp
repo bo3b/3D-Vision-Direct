@@ -375,6 +375,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                 }
             }
         }
+        else
+        {
+            render_frame();  // both eyes
+        }
     }
 
     // Cleanly stop drawing thread upon exit
@@ -1050,7 +1054,7 @@ void render_frame()
         g_lastFrame = current_frame_time;
 
         // Stall around to slower than refresh rate- for testing.
-        //Sleep(1000/30);
+        Sleep(1000 / 30);
     }
     catch (const std::exception& e)
     {
@@ -1105,8 +1109,6 @@ void refresh_thread(void)
 
     while (g_running)
     {
-        render_frame();  // both eyes
-
         refresh_context->CopyResource(refresh_backbuffer.Get(), right_eye_share.Get());
         HR(refresh_swapchain->Present(1, 0));
         g_shutterGlasses.SetRightEye();
