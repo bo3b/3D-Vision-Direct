@@ -501,7 +501,7 @@ HRESULT init_dx11()
     desc.SampleDesc.Quality                 = 0;
     desc.Windowed                           = TRUE;
     desc.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-    desc.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;  // Allows windowed 3D.
+    desc.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
     hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
@@ -889,8 +889,6 @@ int     out_limit = 4;
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
-    HRESULT hr;
-
     //
     // Rotate cube around the origin
     //
@@ -1079,8 +1077,8 @@ void render(void)
 
     DXGI_SWAP_CHAIN_DESC desc = {};
     g_pSwapChain->GetDesc(&desc);
-    desc.BufferCount  = 2;
-    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    desc.BufferCount  = 1;
+    desc.SwapEffect   = DXGI_SWAP_EFFECT_SEQUENTIAL;
     UINT device_flags = g_pd3dDevice->GetCreationFlags();
 
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &refresh_swapchain, &refresh_device, nullptr, &refresh_context));
