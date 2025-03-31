@@ -175,7 +175,7 @@ HRESULT          init_dx11();
 void             cleanup_device();
 LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
 void             render_frame();
-void             render(void);
+void             refresh_thread(void);
 
 //--------------------------------------------------------------------------------------
 // Structures
@@ -231,6 +231,31 @@ NvidiaShutterGlasses g_shutterGlasses;
 std::atomic<bool>    g_running(false);
 std::thread          g_renderThread;
 
+ComPtr<ID3D11Texture2D>        g_right_eye_tex;
+ComPtr<ID3D11Texture2D>        g_left_eye_tex;
+ComPtr<ID3D11RenderTargetView> g_right_eye_RTV;
+ComPtr<ID3D11RenderTargetView> g_left_eye_RTV;
+HANDLE                         g_right_eye_handle;
+HANDLE                         g_left_eye_handle;
+
+//--------------------------------------------------------------------------------------
+// Frank Luna style error checking for stuff that should never fail.
+//--------------------------------------------------------------------------------------
+void HR(
+    HRESULT hresult)
+{
+    if (FAILED(hresult))
+    {
+        std::ostringstream error_log;
+
+        error_log << __FILE__ << ", " << __LINE__ << ", HR: " << hresult << std::endl;
+        OutputDebugStringA(error_log.str().c_str());
+
+        DebugBreak();
+        exit(hresult);
+    }
+}
+
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.
@@ -258,7 +283,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     // Start a rendering subthread, so that rendering is off the main app thread,
     // and thus UI things like dragging the window don't block drawing.
     g_running      = true;
-    g_renderThread = std::thread(render);
+    g_renderThread = std::thread(refresh_thread);
 
     // Main message loop
     MSG msg = {};
@@ -342,7 +367,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     OutputDebugStringA(g_out.str().c_str());
 
                     g_running      = true;
-                    g_renderThread = std::thread(render);  // Restart drawing
+                    g_renderThread = std::thread(refresh_thread);  // Restart drawing
                 }
                 catch (...)
                 {
@@ -482,7 +507,7 @@ HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR 
 //--------------------------------------------------------------------------------------
 HRESULT init_dx11()
 {
-    HRESULT   hr          = S_OK;
+    HRESULT   hr;
     ID3DBlob* shader_blob = nullptr;
 
     UINT create_device_flags = 0;
@@ -506,9 +531,32 @@ HRESULT init_dx11()
     desc.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext);
-    if (FAILED(hr))
-        return hr;
+    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext));
+
+    // Create the offscreen Texture2D for each eye that we will DrawIndexed into.
+    // These are SharedSurfaces so that they can be used for Present in the Refresh Thread.
+    // They need to be identical to the drawing backbuffer in size, color format.
+    // We create them as Shared so that the refresh thread can access latest images.
+
+    ComPtr<ID3D11Texture2D> drawing_backbuffer;
+    HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(drawing_backbuffer.GetAddressOf())));
+
+    D3D11_TEXTURE2D_DESC texture_desc;
+    drawing_backbuffer->GetDesc(&texture_desc);
+    texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED;
+
+    HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_right_eye_tex));
+    HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_left_eye_tex));
+
+    HR(g_pd3dDevice->CreateRenderTargetView(g_right_eye_tex.Get(), nullptr, &g_right_eye_RTV));
+    HR(g_pd3dDevice->CreateRenderTargetView(g_left_eye_tex.Get(), nullptr, &g_left_eye_RTV));
+
+    ComPtr<IDXGIResource> right_eye_dxgi;
+    HR(g_right_eye_tex.As(&right_eye_dxgi));
+    HR(right_eye_dxgi->GetSharedHandle(&g_right_eye_handle));
+    ComPtr<IDXGIResource> left_eye_dxgi;
+    HR(g_left_eye_tex.As(&left_eye_dxgi));
+    HR(left_eye_dxgi->GetSharedHandle(&g_left_eye_handle));
 
     // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
     // Vision will not activate.
@@ -821,31 +869,13 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 //--------------------------------------------------------------------------------------
 void draw_cube(bool rightEye)
 {
-    HRESULT hr;
-
-    // Create a render target view from the writable backbuffer.
-    // There is only one that is writable, and after Present(0,.) are queued for display.
-
-    ID3D11Texture2D*        back_buffer         = nullptr;
-    ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
-
-    hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer));
-    if (FAILED(hr))
-        DebugBreak();
-
-    hr = g_pd3dDevice->CreateRenderTargetView(back_buffer, nullptr, &g_pRenderTargetView);
-    back_buffer->Release();
-    if (FAILED(hr))
-        DebugBreak();
-
     //
-    // Clear the back buffer
+    // Clear the buffer
     //
-    // Even though this uses the g_pRenderTargetView, it only affects half the backbuffer,
-    // because we have set a specific eye.
-    //
-    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, rightEye ? Colors::MidnightBlue : Colors::OliveDrab);
-
+    if (rightEye)
+        g_pImmediateContext->ClearRenderTargetView(g_right_eye_RTV.Get(), Colors::MidnightBlue);
+    else
+        g_pImmediateContext->ClearRenderTargetView(g_left_eye_RTV.Get(), Colors::OliveDrab);
     //
     // Clear the depth buffer to 1.0 (max depth)
     //
@@ -854,7 +884,10 @@ void draw_cube(bool rightEye)
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     // Set the RenderTargetView for the specific eye buffer
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    if (rightEye)
+        g_pImmediateContext->OMSetRenderTargets(1, g_right_eye_RTV.GetAddressOf(), nullptr);
+    else
+        g_pImmediateContext->OMSetRenderTargets(1, g_left_eye_RTV.GetAddressOf(), nullptr);
 
     //
     // Render the cube
@@ -865,8 +898,6 @@ void draw_cube(bool rightEye)
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
     g_pImmediateContext->DrawIndexed(36, 0, 0);
-
-    g_pRenderTargetView->Release();
 }
 
 void sleep_microseconds(int64_t microseconds)
@@ -1035,39 +1066,22 @@ void render_frame()
     }
 }
 
-// Frank Luna style error checking for stuff that should never fail.
-
-void HR(
-    HRESULT hresult)
-{
-    if (FAILED(hresult))
-    {
-        std::ostringstream error_log;
-
-        error_log << __FILE__ << ", " << __LINE__ << ", HR: " << hresult << std::endl;
-        OutputDebugStringA(error_log.str().c_str());
-
-        DebugBreak();
-        exit(hresult);
-    }
-}
-
 //--------------------------------------------------------------------------------------
-// Output thread:
+// Output Refresh thread:
 //  Will alternate between the R/L eye buffers to create frame-sequential output.
+//
+//  The reason to have a separate thread and all this complexity is so that we can
+//  have a very strict output that matches the very strict monitor timing refresh.
 //--------------------------------------------------------------------------------------
 
-void render(void)
+void refresh_thread(void)
 {
     ComPtr<IDXGISwapChain>      refresh_swapchain;
     ComPtr<ID3D11Device>        refresh_device;
     ComPtr<ID3D11DeviceContext> refresh_context;
-    ComPtr<ID3D11Texture2D>     back_buffer;
-
-    ComPtr<ID3D11Texture2D>        right_eye_tex;
-    ComPtr<ID3D11Texture2D>        left_eye_tex;
-    ComPtr<ID3D11RenderTargetView> right_eye_RTV;
-    ComPtr<ID3D11RenderTargetView> left_eye_RTV;
+    ComPtr<ID3D11Texture2D>     refresh_backbuffer;
+    ComPtr<ID3D11Texture2D>     right_eye_share;
+    ComPtr<ID3D11Texture2D>     left_eye_share;
 
     // Upon startup, we need to create our output SwapChain that is a copy of the main
     // drawing environment.  It is going to draw directly to the main window. We duplicate
@@ -1084,32 +1098,20 @@ void render(void)
 
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &refresh_swapchain, &refresh_device, nullptr, &refresh_context));
 
-    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back_buffer.GetAddressOf())));
+    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
-    // With that new swank Device and SwapChain, let's now create the two eye buffers that we
-    // will Present in an alternating fashion.
-
-    D3D11_TEXTURE2D_DESC texture_desc;
-    back_buffer->GetDesc(&texture_desc);
-
-    HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &right_eye_tex));
-    HR(refresh_device->CreateTexture2D(&texture_desc, nullptr, &left_eye_tex));
-
-    HR(refresh_device->CreateRenderTargetView(right_eye_tex.Get(), nullptr, &right_eye_RTV));
-    HR(refresh_device->CreateRenderTargetView(left_eye_tex.Get(), nullptr, &left_eye_RTV));
-
-    refresh_context->ClearRenderTargetView(right_eye_RTV.Get(), Colors::MidnightBlue);
-    refresh_context->ClearRenderTargetView(left_eye_RTV.Get(), Colors::OliveDrab);
+    HR(refresh_device->OpenSharedResource(g_right_eye_handle, __uuidof(ID3D11Texture2D), (void**)&right_eye_share));
+    HR(refresh_device->OpenSharedResource(g_left_eye_handle, __uuidof(ID3D11Texture2D), (void**)&left_eye_share));
 
     while (g_running)
     {
-        render_frame();
+        render_frame();  // both eyes
 
-        refresh_context->CopyResource(back_buffer.Get(), right_eye_tex.Get());
+        refresh_context->CopyResource(refresh_backbuffer.Get(), right_eye_share.Get());
         HR(refresh_swapchain->Present(1, 0));
         g_shutterGlasses.SetRightEye();
 
-        refresh_context->CopyResource(back_buffer.Get(), left_eye_tex.Get());
+        refresh_context->CopyResource(refresh_backbuffer.Get(), left_eye_share.Get());
         HR(refresh_swapchain->Present(1, 0));
         g_shutterGlasses.SetLeftEye();
     }
