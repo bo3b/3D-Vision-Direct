@@ -155,6 +155,7 @@
 #include <thread>
 #include <dwmapi.h>
 #include <wrl/client.h>
+#include <mutex>
 
 #include "nvapi.h"
 
@@ -221,7 +222,7 @@ XMMATRIX g_Projection;
 
 LONG g_ScreenWidth  = 1920;
 LONG g_ScreenHeight = 1080;
-UINT g_bufferCount  = 4;
+UINT g_bufferCount  = 2;
 
 Timer              g_Timer;
 double             g_lastFrame = 0;
@@ -237,6 +238,7 @@ ComPtr<ID3D11RenderTargetView> g_right_eye_RTV;
 ComPtr<ID3D11RenderTargetView> g_left_eye_RTV;
 HANDLE                         g_right_eye_handle;
 HANDLE                         g_left_eye_handle;
+std::mutex                     g_drawing_mutex;
 
 //--------------------------------------------------------------------------------------
 // Frank Luna style error checking for stuff that should never fail.
@@ -873,11 +875,15 @@ void draw_cube(bool rightEye)
     //
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
+    assert(g_right_eye_RTV);  // This should not trigger!
+    assert(g_left_eye_RTV);   // This should not trigger!
+
     // Set the RenderTargetView for the specific eye buffer
+    ID3D11RenderTargetView* rtv_array[] = { rightEye ? g_right_eye_RTV.Get() : g_left_eye_RTV.Get() };
     if (rightEye)
-        g_pImmediateContext->OMSetRenderTargets(1, g_right_eye_RTV.GetAddressOf(), nullptr);
+        g_pImmediateContext->OMSetRenderTargets(1, rtv_array, nullptr);
     else
-        g_pImmediateContext->OMSetRenderTargets(1, g_left_eye_RTV.GetAddressOf(), nullptr);
+        g_pImmediateContext->OMSetRenderTargets(1, rtv_array, nullptr);
 
     //
     // Render the cube
@@ -912,6 +918,8 @@ int     out_limit = 4;
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
+    HRESULT hr;
+
     //
     // Rotate cube around the origin
     //
@@ -938,109 +946,115 @@ void render_frame()
     // Does not seem to ever hit exception handler, which is what we'd expect.
     try
     {
-        // <----------------------- Left Eye -------------------------------
-        //
-        // Specifically set the LeftEye as active, not just toggle. This seems
-        // to help get proper sync when the app is active, but doesn't help with
-        // alt-tab eye swaps.
-        double left_eye_start = g_Timer.GetElapsedMicroseconds();
-
-        //
-        // Drawing same object twice, once for each eye.
-        // Eye specific setup is for the Projection matrix.
-        // The _31 parameter is the X translation for the off center Projection.
-        // The _41 parameter is the X translation after the perspective divide.
-        // This sequence works to handle both convergence and separation hot keys properly.
-        //
+        // We want to lock around the drawing, so that the refresh can not get
+        // half baked results.
+        g_drawing_mutex.lock();
         {
-            cb.mWorld = XMMatrixTranspose(g_World);
-            cb.mView  = XMMatrixTranspose(g_View);
+            // <----------------------- Left Eye -------------------------------
+            //
+            // Specifically set the LeftEye as active, not just toggle. This seems
+            // to help get proper sync when the app is active, but doesn't help with
+            // alt-tab eye swaps.
+            double left_eye_start = g_Timer.GetElapsedMicroseconds();
 
-            cb.mProjection = g_Projection;
-            cb.mProjection._31 -= separation;
-            cb.mProjection._41 = convergence;
-            cb.mProjection     = XMMatrixTranspose(cb.mProjection);
-            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+            //
+            // Drawing same object twice, once for each eye.
+            // Eye specific setup is for the Projection matrix.
+            // The _31 parameter is the X translation for the off center Projection.
+            // The _41 parameter is the X translation after the perspective divide.
+            // This sequence works to handle both convergence and separation hot keys properly.
+            //
+            {
+                cb.mWorld = XMMatrixTranspose(g_World);
+                cb.mView  = XMMatrixTranspose(g_View);
 
-            draw_cube(false);
+                cb.mProjection = g_Projection;
+                cb.mProjection._31 -= separation;
+                cb.mProjection._41 = convergence;
+                cb.mProjection     = XMMatrixTranspose(cb.mProjection);
+                g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+                draw_cube(false);
+            }
+            //g_pImmediateContext->Flush();
+            //hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
+            //if (FAILED(hr))
+            //{
+            //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+            //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
+            //    OutputDebugStringA(g_out.str().c_str());
+            //    DebugBreak();
+            //}
+
+            double left_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - left_eye_start) / 1000.0f;
+            if (left_eye_elapsed > 18.0f)
+            {
+                g_out << "!! Left frame dropped. Eye swap." << std::endl;
+                OutputDebugStringA(g_out.str().c_str());
+                out_limit = 2;
+                //g_shutterGlasses.InitEmitter();	// re-init on drops
+            }
+            if (out_limit > 0)
+            {
+                g_out << "Left eye frame time:  " << left_eye_elapsed << " ms" << std::endl;
+                OutputDebugStringA(g_out.str().c_str());
+            }
+
+            // <----------------------- Right Eye -------------------------------
+            //
+            double right_eye_start = g_Timer.GetElapsedMicroseconds();
+
+            {
+                cb.mWorld = XMMatrixTranspose(g_World);
+                cb.mView  = XMMatrixTranspose(g_View);
+
+                cb.mProjection = g_Projection;
+                cb.mProjection._31 += separation;
+                cb.mProjection._41 = -convergence;
+                cb.mProjection     = XMMatrixTranspose(cb.mProjection);
+                g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+
+                draw_cube(true);
+            }
+            //g_pImmediateContext->Flush();
+            //hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
+            //if (FAILED(hr))
+            //{
+            //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
+            //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
+            //    OutputDebugStringA(g_out.str().c_str());
+            //    DebugBreak();
+            //}
+
+            double right_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - right_eye_start) / 1000.0f;
+            if (right_eye_elapsed > 18.0f)
+            {
+                g_out << "!! Right frame dropped. Eye swap." << std::endl;
+                OutputDebugStringA(g_out.str().c_str());
+                out_limit = 2;
+                //g_shutterGlasses.InitEmitter();	// re-init on drops
+            }
+            if (out_limit > 0)
+            {
+                g_out << "Right eye frame time: " << right_eye_elapsed << " ms" << std::endl;
+                OutputDebugStringA(g_out.str().c_str());
+            }
+
+            double current_frame_time = g_Timer.GetElapsedMicroseconds();
+            if (out_limit > 0)
+            {
+                g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
+                OutputDebugStringA(g_out.str().c_str());
+
+                out_limit--;
+            }
+            g_lastFrame = current_frame_time;
         }
+        g_drawing_mutex.unlock();
         g_pImmediateContext->Flush();
-        //g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
-        //hr = g_pSwapChain->Present(0, 0);
-        //if (FAILED(hr))
-        //{
-        //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-        //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-        //    OutputDebugStringA(g_out.str().c_str());
-        //    DebugBreak();
-        //}
-
-        double left_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - left_eye_start) / 1000.0f;
-        if (left_eye_elapsed > 18.0f)
-        {
-            g_out << "!! Left frame dropped. Eye swap." << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-            out_limit = 2;
-            //g_shutterGlasses.InitEmitter();	// re-init on drops
-        }
-        if (out_limit > 0)
-        {
-            g_out << "Left eye frame time:  " << left_eye_elapsed << " ms" << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-        }
-
-        // <----------------------- Right Eye -------------------------------
-        //
-        double right_eye_start = g_Timer.GetElapsedMicroseconds();
-
-        {
-            cb.mWorld = XMMatrixTranspose(g_World);
-            cb.mView  = XMMatrixTranspose(g_View);
-
-            cb.mProjection = g_Projection;
-            cb.mProjection._31 += separation;
-            cb.mProjection._41 = -convergence;
-            cb.mProjection     = XMMatrixTranspose(cb.mProjection);
-            g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-            draw_cube(true);
-        }
-        g_pImmediateContext->Flush();
-        //hr = g_pSwapChain->Present(0, 0);
-        //if (FAILED(hr))
-        //{
-        //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-        //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-        //    OutputDebugStringA(g_out.str().c_str());
-        //    DebugBreak();
-        //}
-
-        double right_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - right_eye_start) / 1000.0f;
-        if (right_eye_elapsed > 18.0f)
-        {
-            g_out << "!! Right frame dropped. Eye swap." << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-            out_limit = 2;
-            //g_shutterGlasses.InitEmitter();	// re-init on drops
-        }
-        if (out_limit > 0)
-        {
-            g_out << "Right eye frame time: " << right_eye_elapsed << " ms" << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-        }
-
-        double current_frame_time = g_Timer.GetElapsedMicroseconds();
-        if (out_limit > 0)
-        {
-            g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
-            OutputDebugStringA(g_out.str().c_str());
-
-            out_limit--;
-        }
-        g_lastFrame = current_frame_time;
 
         // Stall around to slower than refresh rate- for testing.
-        Sleep(1000 / 30);
+        Sleep(1000 / 500);
     }
     catch (const std::exception& e)
     {
@@ -1070,8 +1084,11 @@ void refresh_thread(void)
     ComPtr<ID3D11Device>        refresh_device;
     ComPtr<ID3D11DeviceContext> refresh_context;
     ComPtr<ID3D11Texture2D>     refresh_backbuffer;
-    ComPtr<ID3D11Texture2D>     right_eye_share;
-    ComPtr<ID3D11Texture2D>     left_eye_share;
+
+    ComPtr<ID3D11Texture2D> right_eye_share;
+    ComPtr<ID3D11Texture2D> left_eye_share;
+    ComPtr<ID3D11Texture2D> refresh_left_eye;
+    ComPtr<ID3D11Texture2D> refresh_right_eye;
 
     // Upon startup, we need to create our output SwapChain that is a copy of the main
     // drawing environment.  It is going to draw directly to the main window. We duplicate
@@ -1090,35 +1107,41 @@ void refresh_thread(void)
 
     HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
+    // The original shared surfaces, updated by the game render loop.
     HR(refresh_device->OpenSharedResource(g_right_eye_handle, __uuidof(ID3D11Texture2D), (void**)&right_eye_share));
     HR(refresh_device->OpenSharedResource(g_left_eye_handle, __uuidof(ID3D11Texture2D), (void**)&left_eye_share));
 
+    // A local copy of the game data, so that it can independently display with no sync requirement.
+    D3D11_TEXTURE2D_DESC eye_desc;
+    right_eye_share.Get()->GetDesc(&eye_desc);
+    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_right_eye));
+    left_eye_share.Get()->GetDesc(&eye_desc);
+    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_left_eye));
+
     while (g_running)
     {
-        refresh_context->CopyResource(refresh_backbuffer.Get(), right_eye_share.Get());
-        HR(refresh_swapchain->Present(1, 0));
-        g_shutterGlasses.SetRightEye();
+        // Fetch the local copy of left eye data, and copy to backbuffer. The Present(1,0) will wait
+        // until next vblank to show it.
 
-        refresh_context->CopyResource(refresh_backbuffer.Get(), left_eye_share.Get());
-        HR(refresh_swapchain->Present(1, 0));
+        refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_left_eye.Get());
         g_shutterGlasses.SetLeftEye();
+        HR(refresh_swapchain->Present(1, 0));
+
+        // Next frame in frame-sequential output will be right eye. Waits for the vblank.
+
+        refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_right_eye.Get());
+        g_shutterGlasses.SetRightEye();
+        HR(refresh_swapchain->Present(1, 0));
+
+        // Right after we have finished the update for both eyes, we'll have a full frame
+        // time to catch up with new eye data. We'll wait here by mutex for any drawing
+        // to complete, then make a local copy to use for next 2 frames.
+
+        g_drawing_mutex.lock();
+        {
+            refresh_context->CopyResource(refresh_left_eye.Get(), left_eye_share.Get());
+            refresh_context->CopyResource(refresh_right_eye.Get(), right_eye_share.Get());
+        }
+        g_drawing_mutex.unlock();
     }
 }
-
-/*
- *Game Thread : Locks the Texture When Rendering
-
-                         ComPtr<IDXGIKeyedMutex>
-                         pKeyedMutex;
-pSharedTexture->QueryInterface(__uuidof(IDXGIKeyedMutex), (void**)&pKeyedMutex);
-
-pKeyedMutex->AcquireSync(0, INFINITE);  // Lock the texture for writing
-// ...Render into the shared texture...
-pKeyedMutex->ReleaseSync(1);  // Unlock for the refresh thread
-
-Refresh Thread: Waits for Unlock Before Copying
-
-pKeyedMutex->AcquireSync(1, INFINITE);  // Wait for the game thread
-g_pImmediateContext->CopyResource(pBackBuffer.Get(), pSharedTexture.Get());
-pKeyedMutex->ReleaseSync(0);  // Unlock for the game thread
-*/
