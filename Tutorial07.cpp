@@ -259,6 +259,16 @@ void HR(
 }
 
 //--------------------------------------------------------------------------------------
+// Clean usage of ostringstream for output logging.
+// So that the log is always cleared.
+//--------------------------------------------------------------------------------------
+void log()
+{
+    OutputDebugStringA(g_out.str().c_str());
+    g_out.str("");
+}
+
+//--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.
 //--------------------------------------------------------------------------------------
@@ -293,9 +303,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     HANDLE hThread = g_renderThread.native_handle();
     if (!SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST))
     {
-        std::ostringstream g_out;
         g_out << "Failed to set thread priority: " << GetLastError() << std::endl;
-        OutputDebugStringA(g_out.str().c_str());
+        log();
     }
 
     // Main message loop
@@ -329,14 +338,14 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
 
                     g_out << ">> SetFullScreenState" << std::endl;
-                    OutputDebugStringA(g_out.str().c_str());
+                    log();
 
                     g_fullScreen = !g_fullScreen;
                     HRESULT hr   = g_pSwapChain->SetFullscreenState(g_fullScreen, nullptr);
 
                     Sleep(100);
                     g_out << "<< SetFullScreenState" << std::endl;
-                    OutputDebugStringA(g_out.str().c_str());
+                    log();
 
                     if (FAILED(hr))
                         DebugBreak();
@@ -352,7 +361,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     g_pSwapChain->GetDesc(&desc);
                     g_out << "Post SetFullscreenState is Fullscreen: " << isFullscreen << std::endl;
                     g_out << "Post SetFullscreenState Flags: 0x" << std::hex << desc.Flags << std::dec << std::endl;
-                    OutputDebugStringA(g_out.str().c_str());
+                    log();
 
                     g_pSwapChain->Present(1, DXGI_PRESENT_RESTART);
 
@@ -364,7 +373,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     if (FAILED(hr))
                         DebugBreak();
                     g_out << "Tearing support: " << allowTearing << std::endl;
-                    OutputDebugStringA(g_out.str().c_str());
+                    log();
                     if (pFactory)
                         pFactory->Release();
 
@@ -443,7 +452,7 @@ void enable_lightboost()
         g_out << "!!! Fail !!!" << std::endl
               << " Unable to fetch current resolution and timing. " << std::endl
               << "!!! Fail !!!" << std::endl;
-        OutputDebugStringA(g_out.str().c_str());
+        log();
         exit(-1);
     }
 
@@ -455,7 +464,7 @@ void enable_lightboost()
         g_out << "!!! Fail !!!" << std::endl
               << " Unable to enable timing for LightBoost. " << std::endl
               << "!!! Fail !!!" << std::endl;
-        OutputDebugStringA(g_out.str().c_str());
+        log();
     }
 }
 
@@ -830,14 +839,14 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 LARGE_INTEGER now;
                 QueryPerformanceCounter(&now);
                 g_out << "--> Deactivate  time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
             }
             else
             {
                 LARGE_INTEGER now;
                 QueryPerformanceCounter(&now);
                 g_out << "<-- Activate    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
             }
             break;
 
@@ -929,8 +938,6 @@ int     out_limit = 4;
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
-    HRESULT hr;
-
     //
     // Rotate cube around the origin
     //
@@ -993,7 +1000,7 @@ void render_frame()
             //{
             //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
             //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            //    OutputDebugStringA(g_out.str().c_str());
+            //    log();
             //    DebugBreak();
             //}
 
@@ -1001,14 +1008,14 @@ void render_frame()
             if (left_eye_elapsed > 18.0f)
             {
                 g_out << "!! Left frame dropped. Eye swap." << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
                 out_limit = 2;
                 //g_shutterGlasses.InitEmitter();	// re-init on drops
             }
             if (out_limit > 0)
             {
                 g_out << "Left eye frame time:  " << left_eye_elapsed << " ms" << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
             }
 
             // <----------------------- Right Eye -------------------------------
@@ -1033,7 +1040,7 @@ void render_frame()
             //{
             //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
             //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            //    OutputDebugStringA(g_out.str().c_str());
+            //    log();
             //    DebugBreak();
             //}
 
@@ -1041,21 +1048,21 @@ void render_frame()
             if (right_eye_elapsed > 18.0f)
             {
                 g_out << "!! Right frame dropped. Eye swap." << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
                 out_limit = 2;
                 //g_shutterGlasses.InitEmitter();	// re-init on drops
             }
             if (out_limit > 0)
             {
                 g_out << "Right eye frame time: " << right_eye_elapsed << " ms" << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
             }
 
             double current_frame_time = g_Timer.GetElapsedMicroseconds();
             if (out_limit > 0)
             {
                 g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
-                OutputDebugStringA(g_out.str().c_str());
+                log();
 
                 out_limit--;
             }
@@ -1065,18 +1072,18 @@ void render_frame()
         g_pImmediateContext->Flush();
 
         // Stall around to slower than refresh rate- for testing.
-        Sleep(1000 / 500);
+        Sleep(1000 / 20);
     }
     catch (const std::exception& e)
     {
         g_out << "!!!  render_frame exception: " << e.what() << std::endl;
-        OutputDebugStringA(g_out.str().c_str());
+        log();
         DebugBreak();
     }
     catch (...)
     {
         g_out << "!!!  Unknown render_frame exception: " << std::endl;
-        OutputDebugStringA(g_out.str().c_str());
+        log();
         DebugBreak();
     }
 }
