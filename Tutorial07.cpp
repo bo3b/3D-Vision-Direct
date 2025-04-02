@@ -287,6 +287,17 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     g_running      = true;
     g_renderThread = std::thread(refresh_thread);
 
+    // Set thread priority to highest, to make sure it is not stalled by
+    // normal processes. Doesn't stop eye-flips, but is conceptually right.
+    // Could maybe justify THREAD_PRIORITY_TIME_CRITICAL real time.
+    HANDLE hThread = g_renderThread.native_handle();
+    if (!SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST))
+    {
+        std::ostringstream g_out;
+        g_out << "Failed to set thread priority: " << GetLastError() << std::endl;
+        OutputDebugStringA(g_out.str().c_str());
+    }
+
     // Main message loop
     MSG msg = {};
     while (WM_QUIT != msg.message)
