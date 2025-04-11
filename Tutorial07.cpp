@@ -299,9 +299,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
     // Set thread priority to highest, to make sure it is not stalled by
     // normal processes. Doesn't stop eye-flips, but is conceptually right.
-    // Could maybe justify THREAD_PRIORITY_TIME_CRITICAL real time.
+    // Could maybe justify THREAD_PRIORITY_TIME_CRITICAL real time, although
+    // testing with that did not seem to solve eye-swaps.
     HANDLE hThread = g_renderThread.native_handle();
-    if (!SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST))
+    if (!SetThreadPriority(hThread, THREAD_PRIORITY_ABOVE_NORMAL))
     {
         g_out << "Failed to set thread priority: " << GetLastError() << std::endl;
         log();
@@ -321,10 +322,12 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
             {
                 PostQuitMessage(0);
             }
+            // Swap eyes
             if (GetAsyncKeyState(VK_F2) & 0x8000)
             {
                 g_shutterGlasses.ToggleEyes();
             }
+            // Fullscreen
             if (GetAsyncKeyState(VK_F4) & 0x8000)
             {
                 try
