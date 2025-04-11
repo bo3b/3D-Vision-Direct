@@ -169,7 +169,7 @@ using Microsoft::WRL::ComPtr;
 //--------------------------------------------------------------------------------------
 // Forward declarations
 //--------------------------------------------------------------------------------------
-HRESULT          init_window(HINSTANCE hInstance, int nCmdShow);
+HRESULT          init_windows(HINSTANCE hInstance, int nCmdShow);
 void             start_glasses();
 void             enable_lightboost();
 HRESULT          init_dx11();
@@ -197,13 +197,15 @@ struct shared_CB
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-HINSTANCE g_hInst      = nullptr;
-HWND      g_hWnd       = nullptr;
-bool      g_fullScreen = false;
+HINSTANCE g_hInst       = nullptr;
+HWND      g_hWnd        = nullptr;
+HWND      g_hidden_hWnd = nullptr;
+bool      g_windowed    = true;
 
-ID3D11Device*        g_pd3dDevice        = nullptr;
-ID3D11DeviceContext* g_pImmediateContext = nullptr;
-IDXGISwapChain*      g_pSwapChain        = nullptr;
+ID3D11Device*          g_pd3dDevice        = nullptr;
+ID3D11DeviceContext*   g_pImmediateContext = nullptr;
+IDXGISwapChain*        g_pSwapChain        = nullptr;
+ComPtr<IDXGISwapChain> g_refresh_swapchain;
 
 ID3D11Texture2D*        g_pDepthStencil     = nullptr;
 ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
@@ -236,8 +238,8 @@ ComPtr<ID3D11Texture2D>        g_right_eye_tex;
 ComPtr<ID3D11Texture2D>        g_left_eye_tex;
 ComPtr<ID3D11RenderTargetView> g_right_eye_RTV;
 ComPtr<ID3D11RenderTargetView> g_left_eye_RTV;
-HANDLE                         g_right_eye_handle;
-HANDLE                         g_left_eye_handle;
+HANDLE                         g_right_eye_handle = nullptr;
+HANDLE                         g_left_eye_handle  = nullptr;
 std::mutex                     g_drawing_mutex;
 
 //--------------------------------------------------------------------------------------
@@ -250,7 +252,7 @@ void HR(
     {
         std::ostringstream error_log;
 
-        error_log << __FILE__ << ", " << __LINE__ << ", HR: " << hresult << std::endl;
+        error_log << __FILE__ << ", " << __LINE__ << ", HR: " << std::hex << hresult << std::dec << std::endl;
         OutputDebugStringA(error_log.str().c_str());
 
         DebugBreak();
@@ -283,7 +285,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     // Safely Wake and Initialize the timing of the emitter.
     start_glasses();
 
-    if (FAILED(init_window(hInstance, nCmdShow)))
+    if (FAILED(init_windows(hInstance, nCmdShow)))
         return 0;
 
     if (FAILED(init_dx11()))
@@ -332,53 +334,49 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
             {
                 try
                 {
-                    g_running = false;
+                    g_windowed = !g_windowed;
+                    g_out << " FullScreen F4 called. Windowed now: " << g_windowed << std::endl;
+                    log();
+
+                    HR(g_refresh_swapchain.Get()->SetFullscreenState(false, nullptr));
+
                     if (g_renderThread.joinable())
                     {
+                        g_running = false;
                         g_renderThread.join();  // Wait for it to cleanly exit.
                     }
+                    g_out << " Renderthread and SwapChain killed " << std::endl;
+                    log();
 
                     g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
 
-                    g_out << ">> SetFullScreenState" << std::endl;
-                    log();
+                    // Specifically do not call ResizeBuffers here-
+                    // refresh_swapchain is the only one changing size, and it is recreated at thread start.
 
-                    g_fullScreen = !g_fullScreen;
-                    HRESULT hr   = g_pSwapChain->SetFullscreenState(g_fullScreen, nullptr);
-
-                    Sleep(100);
-                    g_out << "<< SetFullScreenState" << std::endl;
-                    log();
-
-                    if (FAILED(hr))
-                        DebugBreak();
-                    hr = g_pSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
-                    if (FAILED(hr))
-                        DebugBreak();
 
                     Sleep(200);
 
-                    BOOL isFullscreen = FALSE;
-                    g_pSwapChain->GetFullscreenState(&isFullscreen, nullptr);
-                    DXGI_SWAP_CHAIN_DESC desc;
-                    g_pSwapChain->GetDesc(&desc);
-                    g_out << "Post SetFullscreenState is Fullscreen: " << isFullscreen << std::endl;
-                    g_out << "Post SetFullscreenState Flags: 0x" << std::hex << desc.Flags << std::dec << std::endl;
-                    log();
+                    //BOOL isFullscreen = FALSE;
+                    //g_refresh_swapchain->GetFullscreenState(&isFullscreen, nullptr);
+                    //DXGI_SWAP_CHAIN_DESC desc;
+                    //g_refresh_swapchain->GetDesc(&desc);
+                    //g_out << "Post SetFullscreenState is Fullscreen: " << isFullscreen << std::endl;
+                    //g_out << "Post SetFullscreenState Flags: 0x" << std::hex << desc.Flags << std::dec << std::endl;
+                    //log();
 
-                    g_pSwapChain->Present(1, DXGI_PRESENT_RESTART);
+                    //g_refresh_swapchain->Present(1, DXGI_PRESENT_RESTART);
 
-                    IDXGIFactory5* pFactory = nullptr;
-                    g_pSwapChain->GetParent(__uuidof(IDXGIFactory5), reinterpret_cast<void**>(&pFactory));
+                    //IDXGIFactory5* pFactory = nullptr;
+                    //g_refresh_swapchain->GetParent(__uuidof(IDXGIFactory5), reinterpret_cast<void**>(&pFactory));
 
-                    BOOL allowTearing = FALSE;
-                    hr                = pFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing));
-                    if (FAILED(hr))
-                        DebugBreak();
-                    g_out << "Tearing support: " << allowTearing << std::endl;
-                    log();
-                    if (pFactory)
-                        pFactory->Release();
+                    //BOOL allowTearing = FALSE;
+                    //hr                = pFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing));
+                    //if (FAILED(hr))
+                    //    DebugBreak();
+                    //g_out << "Tearing support: " << allowTearing << std::endl;
+                    //log();
+                    //if (pFactory)
+                    //    pFactory->Release();
 
                     g_running      = true;
                     g_renderThread = std::thread(refresh_thread);  // Restart drawing
@@ -410,7 +408,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 //--------------------------------------------------------------------------------------
 // Register class and create window
 //--------------------------------------------------------------------------------------
-HRESULT init_window(HINSTANCE hInstance, int nCmdShow)
+HRESULT init_windows(HINSTANCE hInstance, int nCmdShow)
 {
     // Register class
     WNDCLASSEX wcex;
@@ -429,15 +427,32 @@ HRESULT init_window(HINSTANCE hInstance, int nCmdShow)
     if (!RegisterClassEx(&wcex))
         return E_FAIL;
 
-    // Create window
+    // Create window for the output mode.
+    // For fullscreen it is required to have WS_POPUP.
     g_hInst = hInstance;
     RECT rc = { 0, 0, g_ScreenWidth, g_ScreenHeight };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+    //    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd)
         return E_FAIL;
+    g_out << "Main refresh window created: " << g_hWnd << std::endl;
+    log();
 
     ShowWindow(g_hWnd, nCmdShow);
+    g_out << "Main refresh window shown." << std::endl;
+    log();
+
+    // And a secondary window for rendering to happen. We don't actually need this
+    // here, but want to emulate a game injected operation.  This window is not
+    // shown, but needed for the 'game' swapchain.  This is necessary for fullscreen
+    // exclusive to work, because only a single swapchain can target the output window.
+
+    g_hidden_hWnd = CreateWindow(L"TutorialWindowClass", L"Hidden", WS_BORDER, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+    if (!g_hidden_hWnd)
+        return E_FAIL;
+    g_out << "Secondary hidden render window created: " << g_hidden_hWnd << std::endl;
+    log();
 
     g_Timer.Start();
     g_out << std::fixed << std::setprecision(2);
@@ -476,6 +491,9 @@ void start_glasses()
     // Start timers and initialize the emitter timing values.
     g_shutterGlasses.WakeEmitter();
     g_shutterGlasses.InitEmitter();
+
+    g_out << "Shutter glasses woken and started, " << std::endl;
+    log();
 }
 
 //--------------------------------------------------------------------------------------
@@ -538,7 +556,7 @@ HRESULT init_dx11()
     desc.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision emitter
     desc.BufferDesc.RefreshRate.Denominator = 1;
     desc.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.OutputWindow                       = g_hWnd;
+    desc.OutputWindow                       = g_hidden_hWnd;  // Main drawing specifically on hidden window
     desc.SampleDesc.Count                   = 1;
     desc.SampleDesc.Quality                 = 0;
     desc.Windowed                           = TRUE;
@@ -547,37 +565,39 @@ HRESULT init_dx11()
 
     // Create the simple DX11, Device, SwapChain, and Context.
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext));
+    g_out << "init_dx11 CreateDeviceAndSwapChain for hidden render window. SwapChain: " << g_pSwapChain << std::endl;
+    log();
 
     // Create the offscreen Texture2D for each eye that we will DrawIndexed into.
     // These are SharedSurfaces so that they can be used for Present in the Refresh Thread.
     // They need to be identical to the drawing backbuffer in size, color format.
     // We create them as Shared so that the refresh thread can access latest images.
+    // Also called after ResizeBuffers on fullscreen.
 
-    ComPtr<ID3D11Texture2D> drawing_backbuffer;
-    HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(drawing_backbuffer.GetAddressOf())));
+    {
+        ComPtr<ID3D11Texture2D> drawing_backbuffer;
+        HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(drawing_backbuffer.GetAddressOf())));
 
-    D3D11_TEXTURE2D_DESC texture_desc;
-    drawing_backbuffer->GetDesc(&texture_desc);
-    texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED;
+        D3D11_TEXTURE2D_DESC texture_desc;
+        drawing_backbuffer->GetDesc(&texture_desc);
+        texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED;
 
-    HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_right_eye_tex));
-    HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_left_eye_tex));
+        HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_left_eye_tex));
+        HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_right_eye_tex));
 
-    HR(g_pd3dDevice->CreateRenderTargetView(g_right_eye_tex.Get(), nullptr, &g_right_eye_RTV));
-    HR(g_pd3dDevice->CreateRenderTargetView(g_left_eye_tex.Get(), nullptr, &g_left_eye_RTV));
+        HR(g_pd3dDevice->CreateRenderTargetView(g_left_eye_tex.Get(), nullptr, &g_left_eye_RTV));
+        HR(g_pd3dDevice->CreateRenderTargetView(g_right_eye_tex.Get(), nullptr, &g_right_eye_RTV));
 
-    ComPtr<IDXGIResource> right_eye_dxgi;
-    HR(g_right_eye_tex.As(&right_eye_dxgi));
-    HR(right_eye_dxgi->GetSharedHandle(&g_right_eye_handle));
-    ComPtr<IDXGIResource> left_eye_dxgi;
-    HR(g_left_eye_tex.As(&left_eye_dxgi));
-    HR(left_eye_dxgi->GetSharedHandle(&g_left_eye_handle));
+        ComPtr<IDXGIResource> left_eye_dxgi;
+        HR(g_left_eye_tex.As(&left_eye_dxgi));
+        HR(left_eye_dxgi->GetSharedHandle(&g_left_eye_handle));
+        ComPtr<IDXGIResource> right_eye_dxgi;
+        HR(g_right_eye_tex.As(&right_eye_dxgi));
+        HR(right_eye_dxgi->GetSharedHandle(&g_right_eye_handle));
 
-    // For DX11 3D, it's required that we run in exclusive full-screen mode, otherwise 3D
-    // Vision will not activate.
-    //hr = g_pSwapChain->SetFullscreenState(TRUE, nullptr);
-    //if (FAILED(hr))
-    //    return hr;
+        g_out << "create_eye_textures for render device completed " << std::endl;
+        log();
+    }
 
     // Create depth stencil texture
     D3D11_TEXTURE2D_DESC desc_stencil = {};
@@ -859,13 +879,16 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 UINT width  = LOWORD(lParam);
                 UINT height = HIWORD(lParam);
 
-                if (g_pSwapChain)
-                {
-                    // Resize the swapchain buffers
-                    HRESULT hr = g_pSwapChain->ResizeBuffers(g_bufferCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
-                    if (FAILED(hr))
-                        DebugBreak();
-                }
+                g_out << "WM_SIZE event: " << width << "x" << height << std::endl;
+                log();
+
+                //if (g_pSwapChain)
+                //{
+                //    // Resize the swapchain buffers
+                //    HRESULT hr = g_pSwapChain->ResizeBuffers(g_bufferCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+                //    if (FAILED(hr))
+                //        DebugBreak();
+                //}
             }
             break;
 
@@ -1101,13 +1124,15 @@ void render_frame()
 
 void refresh_thread(void)
 {
-    ComPtr<IDXGISwapChain>      refresh_swapchain;
+    g_out << " --> refresh_thread Start" << std::endl;
+    log();
+
     ComPtr<ID3D11Device>        refresh_device;
     ComPtr<ID3D11DeviceContext> refresh_context;
     ComPtr<ID3D11Texture2D>     refresh_backbuffer;
 
-    ComPtr<ID3D11Texture2D> right_eye_share;
     ComPtr<ID3D11Texture2D> left_eye_share;
+    ComPtr<ID3D11Texture2D> right_eye_share;
     ComPtr<ID3D11Texture2D> refresh_left_eye;
     ComPtr<ID3D11Texture2D> refresh_right_eye;
 
@@ -1116,43 +1141,107 @@ void refresh_thread(void)
     // the Description and Device Flags so as to be exactly the same output, which will
     // allow us to use CopyResource.
     // We tweak the BufferCount and SwapEffect to avoid conflicts with whatever the
-    // game specified for them.
+    // game specified for them.  The OutputWindow must be the main viewable window,
+    // for full screen to work.
+    // We recreate the swapchain at window state changes, rather than ResizeBuffers.
 
     DXGI_SWAP_CHAIN_DESC desc = {};
     g_pSwapChain->GetDesc(&desc);
     desc.BufferCount  = 1;
     desc.SwapEffect   = DXGI_SWAP_EFFECT_SEQUENTIAL;
+    desc.OutputWindow = g_hWnd;
+    desc.Windowed     = g_windowed;
     UINT device_flags = g_pd3dDevice->GetCreationFlags();
 
-    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &refresh_swapchain, &refresh_device, nullptr, &refresh_context));
+    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_refresh_swapchain, &refresh_device, nullptr, &refresh_context));
+    g_out << "refresh_thread CreateDeviceAndSwapChain for output window. SwapChain: " << g_refresh_swapchain.GetAddressOf() << " Windowed: " << desc.Windowed << std::endl;
+    log();
 
-    HR(refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
+    HR(g_refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
     // The original shared surfaces, updated by the game render loop.
-    HR(refresh_device->OpenSharedResource(g_right_eye_handle, __uuidof(ID3D11Texture2D), (void**)&right_eye_share));
     HR(refresh_device->OpenSharedResource(g_left_eye_handle, __uuidof(ID3D11Texture2D), (void**)&left_eye_share));
+    HR(refresh_device->OpenSharedResource(g_right_eye_handle, __uuidof(ID3D11Texture2D), (void**)&right_eye_share));
 
     // A local copy of the game data, so that it can independently display with no sync requirement.
     D3D11_TEXTURE2D_DESC eye_desc;
-    right_eye_share.Get()->GetDesc(&eye_desc);
-    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_right_eye));
     left_eye_share.Get()->GetDesc(&eye_desc);
     HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_left_eye));
+    right_eye_share.Get()->GetDesc(&eye_desc);
+    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_right_eye));
+
+    // Starting time:
+    double last_frame_time = g_Timer.GetElapsedMicroseconds();
+
+    double current_frame_time;
+    double elapsed_ms;
+    bool   flipped   = false;
+    double max_frame = 16.8f;
 
     while (g_running)
     {
+        current_frame_time = g_Timer.GetElapsedMicroseconds();
+        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
+        if (elapsed_ms > max_frame)
+        {
+            //g_shutterGlasses.ToggleEyes();
+            flipped = !flipped;
+            //g_shutterGlasses.StopTimer();
+
+            // We dropped a frame somehow. Timing not in lockstep with monitor.
+            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
+            // so time alone is not sufficient to determine swap.
+            g_out << "** Pre - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
+            log();
+        }
+        last_frame_time = current_frame_time;
+
         // Fetch the local copy of left eye data, and copy to backbuffer. The Present(1,0) will wait
         // until next vblank to show it.
 
         refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_left_eye.Get());
+        HR(g_refresh_swapchain->Present(1, 0));
         g_shutterGlasses.SetLeftEye();
-        HR(refresh_swapchain->Present(1, 0));
+
+        // -------
+
+        current_frame_time = g_Timer.GetElapsedMicroseconds();
+        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
+        if (elapsed_ms > max_frame)
+        {
+            //g_shutterGlasses.ToggleEyes();
+            flipped = !flipped;
+            //g_shutterGlasses.StopTimer();
+
+            // We dropped a frame somehow. Timing not in lockstep with monitor.
+            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
+            // so time alone is not sufficient to determine swap.
+            g_out << "** Middle - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
+            log();
+        }
+        last_frame_time = current_frame_time;
 
         // Next frame in frame-sequential output will be right eye. Waits for the vblank.
 
         refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_right_eye.Get());
-        g_shutterGlasses.SetRightEye();
-        HR(refresh_swapchain->Present(1, 0));
+        HR(g_refresh_swapchain->Present(1, 0));
+        // g_shutterGlasses.ToggleEyes();
+
+        current_frame_time = g_Timer.GetElapsedMicroseconds();
+        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
+        if (elapsed_ms > max_frame)
+        {
+            //g_shutterGlasses.ToggleEyes();
+            flipped = !flipped;
+            //g_shutterGlasses.StopTimer();
+
+            // We dropped a frame somehow. Timing not in lockstep with monitor.
+            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
+            // so time alone is not sufficient to determine swap.
+            g_out << "** Post - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
+            log();
+        }
+        last_frame_time = current_frame_time;
 
         // Right after we have finished the update for both eyes, we'll have a full frame
         // time to catch up with new eye data. We'll wait here by mutex for any drawing
@@ -1165,4 +1254,20 @@ void refresh_thread(void)
         }
         g_drawing_mutex.unlock();
     }
+    g_out << " refresh thread loop exit-> " << std::endl;
+    log();
+
+    refresh_right_eye.Reset();
+    refresh_left_eye.Reset();
+    right_eye_share.Reset();
+    left_eye_share.Reset();
+
+    // Not legal to do from this thread. Hangs.
+    //    HRESULT hr= refresh_swapchain->SetFullscreenState(false, nullptr);
+    //    g_out << " SetFullScreenState to false hr: "<< hr << std::endl;
+    log();
+
+    // All components are ComPtr and will automatically be disposed.
+    g_out << " <-- refresh_thread Exit" << std::endl;
+    log();
 }
