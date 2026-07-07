@@ -140,6 +140,30 @@
 //   So we will create an alternate swap chain for the thread output, which will simply
 //   Present both buffers in an alternating fashion.
 //
+// Claude: 7-6-26
+//   Parity-driven presenter to fix eye swaps on stalls. Eye identity is now derived
+//   from the absolute refresh count of the vblank each Present lands on (even = left,
+//   odd = right), never from loop alternation. F2 inverts the glasses command
+//   relative to the presented image (flipping both would self-cancel). The refresh
+//   swapchain is flip-model (FLIP_SEQUENTIAL, 2 buffers) with frame latency 1, so
+//   GetFrameStatistics reports the real scanout refresh for each present, and the
+//   next present's landing refresh is predictable. The prediction is verified and
+//   re-anchored from the stats every frame, so a stall of any length degrades to a
+//   repeated eye for one frame instead of a persistent eye-swap. The latch of a new
+//   eye pair only happens before a left-eye present (pair boundary), via try_lock,
+//   so the presenter never blocks on the render thread and never splits a pair.
+//
+// Claude: 7-7-26
+//   The glasses are commanded from a dedicated vblank metronome thread, never from
+//   Present time. The emitter free-runs its shutter timer and treats AA commands as
+//   a phase resync without reliably honoring the eye identity byte, so jittery
+//   present-time commands during stall recovery re-phased it into a persistent swap
+//   even though the on-screen images had recovered correctly. The metronome wakes on
+//   IDXGIOutput::WaitForVBlank, derives the vblank's absolute refresh index (and so
+//   its parity) from a QPC anchor published out of the frame statistics, and sends a
+//   strictly alternating command each vblank. It extrapolates across occlusion, so
+//   alt-tab neither drifts the glasses nor lets them hit the emitter's idle shutoff.
+//
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
@@ -156,6 +180,7 @@
 #include <dwmapi.h>
 #include <wrl/client.h>
 #include <mutex>
+#include <atomic>
 
 #include "nvapi.h"
 
@@ -233,6 +258,7 @@ std::ostringstream g_out;
 NvidiaShutterGlasses g_shutterGlasses;
 std::atomic<bool>    g_running(false);
 std::thread          g_renderThread;
+std::atomic<UINT>    g_eye_swap(0);  // Inverts the glasses command relative to the presented image. F2 flips it.
 
 ComPtr<ID3D11Texture2D>        g_right_eye_tex;
 ComPtr<ID3D11Texture2D>        g_left_eye_tex;
@@ -241,6 +267,20 @@ ComPtr<ID3D11RenderTargetView> g_left_eye_RTV;
 HANDLE                         g_right_eye_handle = nullptr;
 HANDLE                         g_left_eye_handle  = nullptr;
 std::mutex                     g_drawing_mutex;
+
+// Vblank clock: maps a QPC time to an absolute refresh count. Published by the
+// presenter from GetFrameStatistics, consumed by the emitter metronome thread
+// to identify each vblank's parity. Extrapolates across occlusion, since the
+// monitor never stops scanning.
+struct VBlankAnchor
+{
+    LONGLONG sync_qpc     = 0;  // stats.SyncQPCTime: QPC of the vblank below.
+    UINT     sync_refresh = 0;  // stats.SyncRefreshCount at that QPC.
+    double   period_qpc   = 0;  // QPC ticks per refresh, measured from the stats.
+    bool     valid        = false;
+};
+VBlankAnchor g_vblank_anchor;
+std::mutex   g_vblank_anchor_mutex;
 
 //--------------------------------------------------------------------------------------
 // Frank Luna style error checking for stuff that should never fail.
@@ -324,10 +364,16 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
             {
                 PostQuitMessage(0);
             }
-            // Swap eyes
-            if (GetAsyncKeyState(VK_F2) & 0x8000)
+            // Swap eyes: inverts the glasses command relative to the presented
+            // image. Flipping both together would be self-cancelling (right lens
+            // still opens on the right image), so the one-time absolute L/R
+            // calibration has to break that agreement on the glasses side only.
             {
-                g_shutterGlasses.ToggleEyes();
+                static bool f2_was_down = false;
+                bool        f2_down     = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+                if (f2_down && !f2_was_down)
+                    g_eye_swap ^= 1;
+                f2_was_down = f2_down;
             }
             // Fullscreen
             if (GetAsyncKeyState(VK_F4) & 0x8000)
@@ -432,8 +478,8 @@ HRESULT init_windows(HINSTANCE hInstance, int nCmdShow)
     g_hInst = hInstance;
     RECT rc = { 0, 0, g_ScreenWidth, g_ScreenHeight };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    //    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
-    g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+        g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+    //g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd)
         return E_FAIL;
     g_out << "Main refresh window created: " << g_hWnd << std::endl;
@@ -976,9 +1022,9 @@ void render_frame()
     // The variable names are a bit misleading at present.
     //
     shared_CB cb                    = {};
-    float     eye_convergence       = 4.0f;
+    float     eye_convergence       = 15.0f;
     float     eye_separation        = 10.10f;
-    float     separation_percentage = 0.52f;
+    float     separation_percentage = 0.62f;
 
     float separation  = eye_separation * separation_percentage / 100;
     float convergence = eye_separation * separation_percentage / 100 * eye_convergence;
@@ -1098,7 +1144,7 @@ void render_frame()
         g_pImmediateContext->Flush();
 
         // Stall around to slower than refresh rate- for testing.
-        Sleep(1000 / 20);
+        Sleep(1000 / 40);
     }
     catch (const std::exception& e)
     {
@@ -1147,8 +1193,8 @@ void refresh_thread(void)
 
     DXGI_SWAP_CHAIN_DESC desc = {};
     g_pSwapChain->GetDesc(&desc);
-    desc.BufferCount  = 1;
-    desc.SwapEffect   = DXGI_SWAP_EFFECT_SEQUENTIAL;
+    desc.BufferCount  = 2;                                 // Flip model requires at least 2.
+    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Flip model, so GetFrameStatistics reports real scanout refreshes.
     desc.OutputWindow = g_hWnd;
     desc.Windowed     = g_windowed;
     UINT device_flags = g_pd3dDevice->GetCreationFlags();
@@ -1156,6 +1202,12 @@ void refresh_thread(void)
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_refresh_swapchain, &refresh_device, nullptr, &refresh_context));
     g_out << "refresh_thread CreateDeviceAndSwapChain for output window. SwapChain: " << g_refresh_swapchain.GetAddressOf() << " Windowed: " << desc.Windowed << std::endl;
     log();
+
+    // Exactly one present in flight: makes "which refresh will this Present land on"
+    // deterministic, and Present(1, 0) then paces this loop at vblank rate.
+    ComPtr<IDXGIDevice1> dxgi_device;
+    HR(refresh_device.As(&dxgi_device));
+    HR(dxgi_device->SetMaximumFrameLatency(1));
 
     HR(g_refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
@@ -1170,92 +1222,221 @@ void refresh_thread(void)
     right_eye_share.Get()->GetDesc(&eye_desc);
     HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_right_eye));
 
-    // Starting time:
-    double last_frame_time = g_Timer.GetElapsedMicroseconds();
+    // Take an initial copy of the eye pair, so the first presents show real data.
+    g_drawing_mutex.lock();
+    {
+        refresh_context->CopyResource(refresh_left_eye.Get(), left_eye_share.Get());
+        refresh_context->CopyResource(refresh_right_eye.Get(), right_eye_share.Get());
+    }
+    g_drawing_mutex.unlock();
 
-    double current_frame_time;
-    double elapsed_ms;
-    bool   flipped   = false;
-    double max_frame = 16.8f;
+    // Emitter metronome: the glasses are commanded from a dedicated vblank-paced
+    // thread, never from Present time. The emitter free-runs its own shutter
+    // timer and treats AA commands as a phase resync, without reliably honoring
+    // the eye identity byte- so the command stream must be a steady, strictly
+    // alternating cadence. Present-time commands jitter exactly when the
+    // presenter is recovering from a stall, and one badly timed burst re-phases
+    // the emitter into a persistent eye swap even though the on-screen images
+    // are correct. This thread also keeps commands flowing while the presenter
+    // is occluded, so the glasses neither drift nor hit the emitter's ~4s idle
+    // shutoff during alt-tab.
+    ComPtr<IDXGIOutput> refresh_output;
+    HR(g_refresh_swapchain->GetContainingOutput(&refresh_output));
+
+    std::thread emitter_thread([refresh_output]() {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+        while (g_running)
+        {
+            if (FAILED(refresh_output->WaitForVBlank()))
+            {
+                Sleep(8);
+                continue;
+            }
+
+            LARGE_INTEGER now;
+            QueryPerformanceCounter(&now);
+
+            VBlankAnchor anchor;
+            {
+                std::lock_guard<std::mutex> hold(g_vblank_anchor_mutex);
+                anchor = g_vblank_anchor;
+            }
+            if (!anchor.valid)
+                continue;  // Glasses coast on the emitter's internal timer until stats arrive.
+
+            // Index of the refresh that just began scanning out. Deriving it from
+            // the QPC anchor instead of counting wakeups keeps the parity exact
+            // even when this thread misses vblanks.
+            UINT refresh = anchor.sync_refresh + (UINT)((now.QuadPart - anchor.sync_qpc) / anchor.period_qpc + 0.5);
+            bool left    = (refresh & 1) == 0;
+
+            // g_eye_swap inverts the command relative to the image: the calibration
+            // for chains where the protocol's 'left' actually opens the right lens,
+            // or the content's L/R is reversed.
+            if (left != (g_eye_swap != 0))
+                g_shutterGlasses.SetLeftEye();
+            else
+                g_shutterGlasses.SetRightEye();
+        }
+    });
+
+    // Parity-driven presenter.
+    //
+    // Eye identity is derived from the absolute refresh count of the vblank each
+    // Present lands on (even = left, odd = right), never
+    // from alternation. GetFrameStatistics is the ground truth for which refresh
+    // each present actually appeared on; the prediction is re-anchored from it
+    // every frame, so any stall degrades to a repeated eye for one frame instead
+    // of a persistent eye-swap.
+
+    struct present_record
+    {
+        UINT present_count;
+        UINT predicted_refresh;
+        bool left;
+    };
+    present_record history[16] = {};
+
+    bool stats_valid           = false;  // Anchor usable? False until first stats arrive, and after disjoint/occlusion.
+    UINT anchor_present        = 0;      // stats.PresentCount at the anchor.
+    UINT anchor_refresh        = 0;      // stats.PresentRefreshCount at the anchor.
+    UINT presents_issued       = 0;      // GetLastPresentCount after our latest Present.
+    UINT last_verified_present = 0;
+    bool prev_left             = false;
+    int  startup_log           = 8;
+
+    UINT     period_base_refresh = 0;  // First sync record since the last disjoint;
+    LONGLONG period_base_qpc     = 0;  // the vblank period is measured from here.
 
     while (g_running)
     {
-        current_frame_time = g_Timer.GetElapsedMicroseconds();
-        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
-        if (elapsed_ms > max_frame)
-        {
-            //g_shutterGlasses.ToggleEyes();
-            flipped = !flipped;
-            //g_shutterGlasses.StopTimer();
+        // Predict the refresh this Present will appear on. With frame latency 1,
+        // each present not yet reported by the stats occupies one refresh after
+        // the last reported one.
+        UINT predicted_refresh;
+        if (stats_valid)
+            predicted_refresh = anchor_refresh + (presents_issued - anchor_present) + 1;
+        else
+            predicted_refresh = presents_issued + 1;  // Free-running until stats arrive.
 
-            // We dropped a frame somehow. Timing not in lockstep with monitor.
-            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
-            // so time alone is not sufficient to determine swap.
-            g_out << "** Pre - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
+        bool left = (predicted_refresh & 1) == 0;
+
+        if (stats_valid && left == prev_left && startup_log <= 0)
+        {
+            g_out << "== Repeating " << (left ? "L" : "R") << " eye to restore parity." << std::endl;
             log();
         }
-        last_frame_time = current_frame_time;
+        prev_left = left;
 
-        // Fetch the local copy of left eye data, and copy to backbuffer. The Present(1,0) will wait
-        // until next vblank to show it.
-
-        refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_left_eye.Get());
-        HR(g_refresh_swapchain->Present(1, 0));
-        g_shutterGlasses.SetLeftEye();
-
-        // -------
-
-        current_frame_time = g_Timer.GetElapsedMicroseconds();
-        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
-        if (elapsed_ms > max_frame)
-        {
-            //g_shutterGlasses.ToggleEyes();
-            flipped = !flipped;
-            //g_shutterGlasses.StopTimer();
-
-            // We dropped a frame somehow. Timing not in lockstep with monitor.
-            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
-            // so time alone is not sufficient to determine swap.
-            g_out << "** Middle - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
-            log();
-        }
-        last_frame_time = current_frame_time;
-
-        // Next frame in frame-sequential output will be right eye. Waits for the vblank.
-
-        refresh_context->CopyResource(refresh_backbuffer.Get(), refresh_right_eye.Get());
-        HR(g_refresh_swapchain->Present(1, 0));
-        // g_shutterGlasses.ToggleEyes();
-
-        current_frame_time = g_Timer.GetElapsedMicroseconds();
-        elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
-        if (elapsed_ms > max_frame)
-        {
-            //g_shutterGlasses.ToggleEyes();
-            flipped = !flipped;
-            //g_shutterGlasses.StopTimer();
-
-            // We dropped a frame somehow. Timing not in lockstep with monitor.
-            // eye-swap seems to happen at anything above 33.3ms- but... not every one,
-            // so time alone is not sufficient to determine swap.
-            g_out << "** Post - Refresh lost a frame. Elapsed time: " << elapsed_ms << "ms  " << "flipped now: " << flipped << std::endl;
-            log();
-        }
-        last_frame_time = current_frame_time;
-
-        // Right after we have finished the update for both eyes, we'll have a full frame
-        // time to catch up with new eye data. We'll wait here by mutex for any drawing
-        // to complete, then make a local copy to use for next 2 frames.
-
-        g_drawing_mutex.lock();
+        // Pair boundary: only adopt a new game pair when the upcoming vblank is a
+        // left, so a pair can never be split across a boundary (no L/R images from
+        // different game frames). try_lock: if the renderer is mid-frame, reuse the
+        // previous pair- the presenter never blocks on the game.
+        if (left && g_drawing_mutex.try_lock())
         {
             refresh_context->CopyResource(refresh_left_eye.Get(), left_eye_share.Get());
             refresh_context->CopyResource(refresh_right_eye.Get(), right_eye_share.Get());
+            g_drawing_mutex.unlock();
         }
-        g_drawing_mutex.unlock();
+
+        refresh_context->CopyResource(refresh_backbuffer.Get(), left ? refresh_left_eye.Get() : refresh_right_eye.Get());
+
+        HRESULT hr = g_refresh_swapchain->Present(1, 0);
+        if (hr == DXGI_STATUS_OCCLUDED)
+        {
+            // Alt-tab etc: nothing reached the screen and the stats go stale.
+            // Idle, and re-baseline parity when presents start landing again.
+            stats_valid = false;
+            g_out << "** Presenter occluded. Parity re-baseline pending." << std::endl;
+            log();
+            Sleep(10);
+            continue;
+        }
+        HR(hr);
+
+        HR(g_refresh_swapchain->GetLastPresentCount(&presents_issued));
+        history[presents_issued % ARRAYSIZE(history)] = { presents_issued, predicted_refresh, left };
+
+        if (startup_log > 0)
+        {
+            g_out << "   present " << presents_issued << " (" << (left ? "L" : "R") << ")"
+                  << " predicted refresh: " << predicted_refresh
+                  << (stats_valid ? "" : "  [no anchor]") << std::endl;
+            log();
+            startup_log--;
+        }
+
+        // Verify against ground truth, and re-anchor the prediction.
+        DXGI_FRAME_STATISTICS stats = {};
+        hr                          = g_refresh_swapchain->GetFrameStatistics(&stats);
+        if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT)
+        {
+            stats_valid = false;
+
+            // The refresh counter or display mode may have changed, so the vblank
+            // clock is no longer trustworthy. The metronome goes quiet until a
+            // fresh anchor is published.
+            period_base_refresh = 0;
+            {
+                std::lock_guard<std::mutex> hold(g_vblank_anchor_mutex);
+                g_vblank_anchor.valid = false;
+            }
+            g_out << "** Frame statistics disjoint. Parity re-baseline pending." << std::endl;
+            log();
+        }
+        else if (SUCCEEDED(hr) && stats.SyncQPCTime.QuadPart != 0)
+        {
+            // Publish the vblank clock for the emitter metronome. The period is
+            // measured over the whole span since the last disjoint, so it converges
+            // on the true refresh period and stays accurate when extrapolated
+            // across long occlusions.
+            if (period_base_refresh == 0)
+            {
+                period_base_refresh = stats.SyncRefreshCount;
+                period_base_qpc     = stats.SyncQPCTime.QuadPart;
+            }
+            else if (stats.SyncRefreshCount > period_base_refresh)
+            {
+                std::lock_guard<std::mutex> hold(g_vblank_anchor_mutex);
+                g_vblank_anchor.sync_qpc     = stats.SyncQPCTime.QuadPart;
+                g_vblank_anchor.sync_refresh = stats.SyncRefreshCount;
+                g_vblank_anchor.period_qpc   = double(stats.SyncQPCTime.QuadPart - period_base_qpc) / (stats.SyncRefreshCount - period_base_refresh);
+                g_vblank_anchor.valid        = true;
+            }
+
+            if (stats.PresentCount == 0 || stats.PresentCount == last_verified_present)
+                continue;
+            last_verified_present = stats.PresentCount;
+
+            const present_record& rec = history[stats.PresentCount % ARRAYSIZE(history)];
+            if (rec.present_count == stats.PresentCount)
+            {
+                if (stats_valid && stats.PresentRefreshCount != rec.predicted_refresh)
+                {
+                    g_out << "!! present " << rec.present_count << " (" << (rec.left ? "L" : "R") << ")"
+                          << " predicted refresh: " << rec.predicted_refresh
+                          << " landed on: " << stats.PresentRefreshCount
+                          << "  slip: " << (int)(stats.PresentRefreshCount - rec.predicted_refresh) << std::endl;
+                    log();
+                }
+                if (!stats_valid)
+                {
+                    g_out << "== Parity anchor: present " << stats.PresentCount
+                          << " on refresh " << stats.PresentRefreshCount
+                          << "  QPC: " << stats.SyncQPCTime.QuadPart << std::endl;
+                    log();
+                }
+                anchor_present = stats.PresentCount;
+                anchor_refresh = stats.PresentRefreshCount;
+                stats_valid    = true;
+            }
+        }
     }
     g_out << " refresh thread loop exit-> " << std::endl;
     log();
+
+    emitter_thread.join();
 
     refresh_right_eye.Reset();
     refresh_left_eye.Reset();
