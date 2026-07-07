@@ -260,6 +260,12 @@ std::atomic<bool>    g_running(false);
 std::thread          g_renderThread;
 std::atomic<UINT>    g_eye_swap(0);  // Inverts the glasses command relative to the presented image. F2 flips it.
 
+// Degenerate-case test hooks.
+std::atomic<int>  g_render_fps(120);      // Render thread target fps. F5 cycles 120/60/58/20.
+std::atomic<int>  g_stall_request_ms(0);  // One-shot presenter stall. F6 injects a random 5-1000ms preemption.
+std::atomic<bool> g_judder_bar(true);     // F7 toggles the sweeping judder test bar.
+float             g_bar_x = 0;            // Bar position, computed once per game frame so both eyes match.
+
 ComPtr<ID3D11Texture2D>        g_right_eye_tex;
 ComPtr<ID3D11Texture2D>        g_left_eye_tex;
 ComPtr<ID3D11RenderTargetView> g_right_eye_RTV;
@@ -374,6 +380,45 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                 if (f2_down && !f2_was_down)
                     g_eye_swap ^= 1;
                 f2_was_down = f2_down;
+            }
+            // Cycle the render thread's target frame rate through degenerate
+            // cases. 58 gives a sustained just-below-refresh mismatch, 20 a
+            // slideshow; parity must hold at all of them.
+            {
+                static bool f5_was_down = false;
+                bool        f5_down     = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+                if (f5_down && !f5_was_down)
+                {
+                    static const int rates[]     = { 120, 60, 58, 20 };
+                    static int       rate_index  = 0;
+                    rate_index   = (rate_index + 1) % ARRAYSIZE(rates);
+                    g_render_fps = rates[rate_index];
+                    g_out << "== F5: render thread target now " << rates[rate_index] << " fps" << std::endl;
+                    log();
+                }
+                f5_was_down = f5_down;
+            }
+            // Inject a random 5-1000ms stall into the presenter thread, to
+            // simulate scheduler preemption- the original eye-swap vector.
+            // QPC low bits at human keypress time are random enough here.
+            {
+                static bool f6_was_down = false;
+                bool        f6_down     = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+                if (f6_down && !f6_was_down)
+                {
+                    LARGE_INTEGER seed;
+                    QueryPerformanceCounter(&seed);
+                    g_stall_request_ms = 5 + (int)(seed.QuadPart % 996);
+                }
+                f6_was_down = f6_down;
+            }
+            // Toggle the judder test bar.
+            {
+                static bool f7_was_down = false;
+                bool        f7_down     = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+                if (f7_down && !f7_was_down)
+                    g_judder_bar = !g_judder_bar;
+                f7_was_down = f7_down;
             }
             // Fullscreen
             if (GetAsyncKeyState(VK_F4) & 0x8000)
@@ -957,7 +1002,7 @@ void draw_cube(bool rightEye)
     // Clear the buffer
     //
     if (rightEye)
-        g_pImmediateContext->ClearRenderTargetView(g_right_eye_RTV.Get(), Colors::MidnightBlue);
+        g_pImmediateContext->ClearRenderTargetView(g_right_eye_RTV.Get(), Colors::OliveDrab);
     else
         g_pImmediateContext->ClearRenderTargetView(g_left_eye_RTV.Get(), Colors::OliveDrab);
     //
@@ -986,6 +1031,21 @@ void draw_cube(bool rightEye)
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
     g_pImmediateContext->DrawIndexed(36, 0, 0);
+
+    // Judder test bar (F7 toggles): the cube geometry squeezed into a thin
+    // vertical bar, sweeping the width at constant speed. Drawn identically in
+    // both eyes with the plain projection- zero parallax, so it sits at screen
+    // depth. A repeated or dropped pair shows as a visible double-step in the
+    // sweep, which the slowly rotating cube is too subtle to reveal.
+    if (g_judder_bar)
+    {
+        shared_CB bar_cb   = {};
+        bar_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(0.06f, 4.0f, 0.06f) * XMMatrixTranslation(g_bar_x, 1.0f, 0.0f));
+        bar_cb.mView       = XMMatrixTranspose(g_View);
+        bar_cb.mProjection = XMMatrixTranspose(g_Projection);
+        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &bar_cb, 0, 0);
+        g_pImmediateContext->DrawIndexed(36, 0, 0);
+    }
 }
 
 void sleep_microseconds(int64_t microseconds)
@@ -1015,6 +1075,10 @@ void render_frame()
     //
     g_World = XMMatrixRotationY(GetTickCount64() / 1000.0f);
 
+    // Judder bar sweep: constant speed, wrapping every 2 seconds. Computed once
+    // per game frame so both eyes place the bar identically.
+    g_bar_x = (float)(fmod(GetTickCount64() / 1000.0, 2.0) / 2.0) * 9.0f - 4.5f;
+
     //
     // This now includes changing CBChangeOnResize each frame as well, because
     // we need to update the Projection matrix each frame, in case the user changes
@@ -1022,9 +1086,9 @@ void render_frame()
     // The variable names are a bit misleading at present.
     //
     shared_CB cb                    = {};
-    float     eye_convergence       = 15.0f;
+    float     eye_convergence       = 35.0f;
     float     eye_separation        = 10.10f;
-    float     separation_percentage = 0.62f;
+    float     separation_percentage = 0.22f;
 
     float separation  = eye_separation * separation_percentage / 100;
     float convergence = eye_separation * separation_percentage / 100 * eye_convergence;
@@ -1143,8 +1207,30 @@ void render_frame()
         g_drawing_mutex.unlock();
         g_pImmediateContext->Flush();
 
-        // Stall around to slower than refresh rate- for testing.
-        Sleep(1000 / 40);
+        // Frame-rate throttle for degenerate-case testing; F5 cycles the target.
+        // Paced against a running deadline so the cadence is the actual
+        // frame-to-frame rate (58 means 58), not render time plus a fixed sleep.
+        // Sleep covers the bulk, a short spin lands the deadline precisely.
+        {
+            static int64_t next_deadline = 0;
+
+            LARGE_INTEGER freq, now;
+            QueryPerformanceFrequency(&freq);
+            QueryPerformanceCounter(&now);
+
+            int64_t period = freq.QuadPart / g_render_fps;
+            if (now.QuadPart > next_deadline + period)
+                next_deadline = now.QuadPart;  // Lost the cadence (stall, rate change): restart from now.
+            next_deadline += period;
+
+            int64_t remaining_us = (next_deadline - now.QuadPart) * 1000000 / freq.QuadPart;
+            if (remaining_us > 3000)
+                Sleep((DWORD)((remaining_us - 2000) / 1000));
+
+            QueryPerformanceCounter(&now);
+            if (now.QuadPart < next_deadline)
+                sleep_microseconds((next_deadline - now.QuadPart) * 1000000 / freq.QuadPart);
+        }
     }
     catch (const std::exception& e)
     {
@@ -1311,6 +1397,17 @@ void refresh_thread(void)
 
     while (g_running)
     {
+        // F6: injected stall, simulating this thread being preempted by the
+        // scheduler- the original eye-swap vector. Recovery should be a slip
+        // report, a repeated eye, and re-anchored parity; never a swap.
+        int stall_ms = g_stall_request_ms.exchange(0);
+        if (stall_ms)
+        {
+            g_out << "** F6: injected presenter stall of " << stall_ms << " ms" << std::endl;
+            log();
+            Sleep(stall_ms);
+        }
+
         // Predict the refresh this Present will appear on. With frame latency 1,
         // each present not yet reported by the stats occupies one refresh after
         // the last reported one.
@@ -1350,7 +1447,7 @@ void refresh_thread(void)
             stats_valid = false;
             g_out << "** Presenter occluded. Parity re-baseline pending." << std::endl;
             log();
-            Sleep(10);
+            Sleep(5);
             continue;
         }
         HR(hr);
