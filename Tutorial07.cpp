@@ -164,10 +164,36 @@
 //   strictly alternating command each vblank. It extrapolates across occlusion, so
 //   alt-tab neither drifts the glasses nor lets them hit the emitter's idle shutoff.
 //
+// Claude: 7-12-26
+//   geo-11 handoff architecture ported back here to reproduce (and dissect) the
+//   Witcher3 "wobble": sustained slips in engaged exclusive fullscreen whenever the
+//   game runs GPU-heavy at sub-60 fps (~25ms command-buffer bursts; capping the frame
+//   rate does not shorten the bursts, and neither the HIGH-priority presenter queue
+//   nor the content-readiness fence cured it in the real game). The eye handoff is
+//   now geo-11's exactly: a 2-slot FIFO ring of 2-slice keyed-mutex array textures
+//   (game: AcquireSync(0)->copy->Signal fence->ReleaseSync(1); presenter:
+//   AcquireSync(1,0)->fence gate->copy to a local pair->ReleaseSync(0)), presenter
+//   swapchain with BufferCount 3, and the geo-11 fullscreen engage sequence (create
+//   windowed, SetFullscreenState(TRUE), revalidating ResizeBuffers).
+//   Every suspect is now a live knob:
+//     F3  - presenter device on a HIGH-priority D3D12 queue via 11on12 (restarts presenter)
+//     F4  - exclusive fullscreen <-> windowed (restarts presenter)
+//     F5  - game fps target: 120 / 60 / 40 / 30 / 58 / 20
+//     F6  - one-shot random presenter stall (original eye-swap vector)
+//     F7  - judder bar
+//     F8  - GPU load per eye: 0 / 8k / 16k / 32k / 64k FMA iterations; the measured
+//           GPU frame time is logged every ~2s via timestamp queries, so the load
+//           can be dialed to match a real game's burst (~25ms = Witcher3 at max)
+//     F9  - content-readiness fence gate on/off (A/B the geo-11 fix candidate)
+//     F11 - presenter frame latency 1 <-> 2 (restarts presenter)
+//
 //--------------------------------------------------------------------------------------
 
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d11_4.h>    // ID3D11Fence / ID3D11Device5 / ID3D11DeviceContext4 for the handoff readiness fence.
+#include <d3d12.h>      // HIGH-priority presenter queue (F3), via 11on12.
+#include <d3d11on12.h>
 #include <dxgi1_5.h>
 #include <d3dcompiler.h>
 #include <directxmath.h>
@@ -201,6 +227,8 @@ HRESULT          init_dx11();
 void             cleanup_device();
 LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
 void             render_frame();
+void             copy_to_handoff();
+void             restart_presenter();
 void             refresh_thread(void);
 
 //--------------------------------------------------------------------------------------
@@ -261,18 +289,65 @@ std::thread          g_renderThread;
 std::atomic<UINT>    g_eye_swap(0);  // Inverts the glasses command relative to the presented image. F2 flips it.
 
 // Degenerate-case test hooks.
-std::atomic<int>  g_render_fps(120);      // Render thread target fps. F5 cycles 120/60/58/20.
+std::atomic<int>  g_render_fps(120);      // Render thread target fps. F5 cycles 120/60/40/30/58/20.
 std::atomic<int>  g_stall_request_ms(0);  // One-shot presenter stall. F6 injects a random 5-1000ms preemption.
 std::atomic<bool> g_judder_bar(true);     // F7 toggles the sweeping judder test bar.
 float             g_bar_x = 0;            // Bar position, computed once per game frame so both eyes match.
 
+// Presenter configuration knobs (geo-11 [3DVGlasses] equivalents). F3 and F11
+// restart the presenter thread to apply; F8/F9 take effect immediately.
+std::atomic<int>   g_load_iterations(0);   // F8: FMA iterations/pixel of the load pass, per eye. 0 = off.
+std::atomic<bool>  g_fence_gate(true);     // F9: refuse pairs whose GPU copy hasn't completed.
+std::atomic<bool>  g_high_priority(false); // F3: presenter on a HIGH-priority D3D12 queue via 11on12.
+std::atomic<int>   g_frame_latency(2);     // F11: presenter presents in flight (1 or 2).
+std::atomic<float> g_gpu_frame_ms(0);      // Measured GPU time per game frame (timestamp queries).
+
+// Per-eye render targets on the game device (not shared - the handoff below is
+// the only cross-device surface, matching geo-11's fake-backbuffer -> handoff shape).
 ComPtr<ID3D11Texture2D>        g_right_eye_tex;
 ComPtr<ID3D11Texture2D>        g_left_eye_tex;
 ComPtr<ID3D11RenderTargetView> g_right_eye_RTV;
 ComPtr<ID3D11RenderTargetView> g_left_eye_RTV;
-HANDLE                         g_right_eye_handle = nullptr;
-HANDLE                         g_left_eye_handle  = nullptr;
-std::mutex                     g_drawing_mutex;
+
+// geo-11 handoff, ported exactly: a 2-slot FIFO ring of 2-slice array textures
+// (slice 0 = left, slice 1 = right) with keyed mutexes, created on the game
+// device and opened by shared handle on the presenter device. One texture =
+// one keyed mutex = the L/R pair is adopted atomically.
+// Game side: AcquireSync(0, 150) -> two CopySubresourceRegion -> Signal fence
+// -> Flush -> ReleaseSync(1). Presenter side: AcquireSync(1, 0) -> fence gate
+// -> CopyResource to a local pair -> ReleaseSync(0).
+const int               HANDOFF_SLOTS = 2;
+ComPtr<ID3D11Texture2D> g_handoff_tex[HANDOFF_SLOTS];
+ComPtr<IDXGIKeyedMutex> g_handoff_mutex[HANDOFF_SLOTS];
+HANDLE                  g_handoff_handle[HANDOFF_SLOTS] = {};
+UINT                    g_handoff_write_index           = 0;
+
+// Content-readiness fence (geo-11's wobble fix candidate, F9 gates its use):
+// the keyed mutex hands over protocol state at CPU speed, but the pair's
+// pixels only exist once the game's GPU has executed the handoff copy - which
+// queues behind the game's whole frame of render work. Signaled on the game's
+// context after each slot's copy; the presenter refuses to adopt (and reuses
+// the previous pair) until the slot's value shows complete.
+ComPtr<ID3D11Fence>          g_handoff_fence;
+ComPtr<ID3D11DeviceContext4> g_game_context4;
+UINT64                       g_handoff_fence_value             = 0;
+UINT64                       g_slot_fence_value[HANDOFF_SLOTS] = {};
+
+// GPU load pass (F8): screen-covering cube with the dependent-FMA shader.
+ID3D11PixelShader* g_pLoadPS = nullptr;
+ID3D11Buffer*      g_pLoadCB = nullptr;
+
+// GPU frame-time measurement: a small ring of timestamp query sets so results
+// are polled ~4 frames later without ever stalling the game thread.
+struct gpu_probe
+{
+    ComPtr<ID3D11Query> disjoint;
+    ComPtr<ID3D11Query> t0;
+    ComPtr<ID3D11Query> t1;
+    bool                inflight = false;
+};
+gpu_probe g_probe[4];
+int       g_probe_index = 0;
 
 // Vblank clock: maps a QPC time to an absolute refresh count. Published by the
 // presenter from GetFrameStatistics, consumed by the emitter metronome thread
@@ -317,6 +392,48 @@ void log()
 }
 
 //--------------------------------------------------------------------------------------
+// Stop and restart the presenter thread (config knobs that require a new device or
+// swapchain: F3 high-priority queue, F4 fullscreen, F11 frame latency). Runs on the
+// main thread - SetFullscreenState(false) must be issued from here BEFORE the join,
+// or a presenter blocked inside Present() on a fullscreen transition deadlocks
+// (the validated ordering from the exclusive-fullscreen commit).
+//--------------------------------------------------------------------------------------
+void restart_presenter()
+{
+    // g_running must drop BEFORE the fullscreen release: the transition takes
+    // tens of ms, and a presenter still looping through it sees the swapchain
+    // in a transitional state where GetLastPresentCount/Present fail. With
+    // g_running already false, the presenter exits instead of treating those
+    // as fatal.
+    g_running = false;
+    if (g_refresh_swapchain)
+        g_refresh_swapchain.Get()->SetFullscreenState(false, nullptr);
+
+    if (g_renderThread.joinable())
+        g_renderThread.join();
+
+    // Reset the handoff ring: the keyed-mutex key states live in the shared
+    // resources and survive the presenter, so a slot published (key 1) but
+    // never consumed would wedge the new presenter/game cursor agreement.
+    // Reclaim any presenter-readable slots back to game-writable, and restart
+    // both cursors at slot 0 (the new presenter starts its read cursor at 0).
+    for (int i = 0; i < HANDOFF_SLOTS; i++)
+    {
+        if (g_handoff_mutex[i] && g_handoff_mutex[i]->AcquireSync(1, 0) == S_OK)
+            g_handoff_mutex[i]->ReleaseSync(0);
+    }
+    g_handoff_write_index = 0;
+
+    g_out << " presenter restarted (windowed: " << g_windowed
+          << ", high_priority: " << g_high_priority
+          << ", frame_latency: " << g_frame_latency << ")" << std::endl;
+    log();
+
+    g_running      = true;
+    g_renderThread = std::thread(refresh_thread);
+}
+
+//--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.
 //--------------------------------------------------------------------------------------
@@ -342,19 +459,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
     // Start a rendering subthread, so that rendering is off the main app thread,
     // and thus UI things like dragging the window don't block drawing.
+    // The thread raises its own priority (ABOVE_NORMAL, matching geo-11).
     g_running      = true;
     g_renderThread = std::thread(refresh_thread);
-
-    // Set thread priority to highest, to make sure it is not stalled by
-    // normal processes. Doesn't stop eye-flips, but is conceptually right.
-    // Could maybe justify THREAD_PRIORITY_TIME_CRITICAL real time, although
-    // testing with that did not seem to solve eye-swaps.
-    HANDLE hThread = g_renderThread.native_handle();
-    if (!SetThreadPriority(hThread, THREAD_PRIORITY_ABOVE_NORMAL))
-    {
-        g_out << "Failed to set thread priority: " << GetLastError() << std::endl;
-        log();
-    }
 
     // Main message loop
     MSG msg = {};
@@ -382,14 +489,15 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                 f2_was_down = f2_down;
             }
             // Cycle the render thread's target frame rate through degenerate
-            // cases. 58 gives a sustained just-below-refresh mismatch, 20 a
-            // slideshow; parity must hold at all of them.
+            // cases. 40/30 are the Witcher3-wobble rates, 58 a sustained
+            // just-below-refresh mismatch, 20 a slideshow; parity must hold
+            // at all of them.
             {
                 static bool f5_was_down = false;
                 bool        f5_down     = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
                 if (f5_down && !f5_was_down)
                 {
-                    static const int rates[]     = { 120, 60, 58, 20 };
+                    static const int rates[]     = { 120, 60, 40, 30, 58, 20 };
                     static int       rate_index  = 0;
                     rate_index   = (rate_index + 1) % ARRAYSIZE(rates);
                     g_render_fps = rates[rate_index];
@@ -397,6 +505,64 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     log();
                 }
                 f5_was_down = f5_down;
+            }
+            // Cycle the GPU load pass: FMA iterations per pixel, per eye, on a
+            // screen-covering cube. Dial it while watching the measured "GPU
+            // frame" log line until it matches the game being simulated
+            // (Witcher3 at max ~= 25ms).
+            {
+                static bool f8_was_down = false;
+                bool        f8_down     = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+                if (f8_down && !f8_was_down)
+                {
+                    static const int loads[]    = { 0, 8000, 16000, 32000, 64000 };
+                    static int       load_index = 0;
+                    load_index        = (load_index + 1) % ARRAYSIZE(loads);
+                    g_load_iterations = loads[load_index];
+                    g_out << "== F8: GPU load now " << loads[load_index] << " iterations/pixel per eye" << std::endl;
+                    log();
+                }
+                f8_was_down = f8_down;
+            }
+            // Toggle the content-readiness fence gate (the geo-11 wobble fix
+            // candidate): off = adopt pairs as soon as the keyed mutex opens,
+            // even if the game's GPU copy hasn't executed yet.
+            {
+                static bool f9_was_down = false;
+                bool        f9_down     = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+                if (f9_down && !f9_was_down)
+                {
+                    g_fence_gate = !g_fence_gate;
+                    g_out << "== F9: readiness fence gate now " << (g_fence_gate ? "ON" : "OFF") << std::endl;
+                    log();
+                }
+                f9_was_down = f9_down;
+            }
+            // Toggle the presenter's HIGH-priority D3D12 queue (11on12).
+            {
+                static bool f3_was_down = false;
+                bool        f3_down     = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
+                if (f3_down && !f3_was_down)
+                {
+                    g_high_priority = !g_high_priority;
+                    g_out << "== F3: presenter high-priority queue now " << (g_high_priority ? "ON" : "OFF") << std::endl;
+                    log();
+                    restart_presenter();
+                }
+                f3_was_down = f3_down;
+            }
+            // Toggle the presenter's frame latency between 1 and 2.
+            {
+                static bool f11_was_down = false;
+                bool        f11_down     = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+                if (f11_down && !f11_was_down)
+                {
+                    g_frame_latency = (g_frame_latency == 2) ? 1 : 2;
+                    g_out << "== F11: presenter frame latency now " << g_frame_latency << std::endl;
+                    log();
+                    restart_presenter();
+                }
+                f11_was_down = f11_down;
             }
             // Inject a random 5-1000ms stall into the presenter thread, to
             // simulate scheduler preemption- the original eye-swap vector.
@@ -420,62 +586,21 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                     g_judder_bar = !g_judder_bar;
                 f7_was_down = f7_down;
             }
-            // Fullscreen
-            if (GetAsyncKeyState(VK_F4) & 0x8000)
+            // Fullscreen toggle: the presenter swapchain owns the display state,
+            // so this restarts the presenter, which re-engages via the geo-11
+            // sequence (create windowed, SetFullscreenState(TRUE), revalidating
+            // ResizeBuffers).
             {
-                try
+                static bool f4_was_down = false;
+                bool        f4_down     = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+                if (f4_down && !f4_was_down)
                 {
                     g_windowed = !g_windowed;
-                    g_out << " FullScreen F4 called. Windowed now: " << g_windowed << std::endl;
+                    g_out << "== F4: windowed now " << g_windowed << std::endl;
                     log();
-
-                    HR(g_refresh_swapchain.Get()->SetFullscreenState(false, nullptr));
-
-                    if (g_renderThread.joinable())
-                    {
-                        g_running = false;
-                        g_renderThread.join();  // Wait for it to cleanly exit.
-                    }
-                    g_out << " Renderthread and SwapChain killed " << std::endl;
-                    log();
-
-                    g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
-
-                    // Specifically do not call ResizeBuffers here-
-                    // refresh_swapchain is the only one changing size, and it is recreated at thread start.
-
-
-                    Sleep(200);
-
-                    //BOOL isFullscreen = FALSE;
-                    //g_refresh_swapchain->GetFullscreenState(&isFullscreen, nullptr);
-                    //DXGI_SWAP_CHAIN_DESC desc;
-                    //g_refresh_swapchain->GetDesc(&desc);
-                    //g_out << "Post SetFullscreenState is Fullscreen: " << isFullscreen << std::endl;
-                    //g_out << "Post SetFullscreenState Flags: 0x" << std::hex << desc.Flags << std::dec << std::endl;
-                    //log();
-
-                    //g_refresh_swapchain->Present(1, DXGI_PRESENT_RESTART);
-
-                    //IDXGIFactory5* pFactory = nullptr;
-                    //g_refresh_swapchain->GetParent(__uuidof(IDXGIFactory5), reinterpret_cast<void**>(&pFactory));
-
-                    //BOOL allowTearing = FALSE;
-                    //hr                = pFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing));
-                    //if (FAILED(hr))
-                    //    DebugBreak();
-                    //g_out << "Tearing support: " << allowTearing << std::endl;
-                    //log();
-                    //if (pFactory)
-                    //    pFactory->Release();
-
-                    g_running      = true;
-                    g_renderThread = std::thread(refresh_thread);  // Restart drawing
+                    restart_presenter();
                 }
-                catch (...)
-                {
-                    DebugBreak();
-                }
+                f4_was_down = f4_down;
             }
         }
         else
@@ -484,8 +609,13 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
         }
     }
 
-    // Cleanly stop drawing thread upon exit
+    // Cleanly stop drawing thread upon exit. Fullscreen must be dropped from
+    // THIS thread before the join (same ordering as restart_presenter), and
+    // g_running before that, so the presenter doesn't treat transition-state
+    // swapchain failures as fatal.
     g_running = false;
+    if (g_refresh_swapchain)
+        g_refresh_swapchain->SetFullscreenState(false, nullptr);
     if (g_renderThread.joinable())
     {
         g_renderThread.join();  // Wait for it to cleanly exit.
@@ -660,10 +790,9 @@ HRESULT init_dx11()
     log();
 
     // Create the offscreen Texture2D for each eye that we will DrawIndexed into.
-    // These are SharedSurfaces so that they can be used for Present in the Refresh Thread.
-    // They need to be identical to the drawing backbuffer in size, color format.
-    // We create them as Shared so that the refresh thread can access latest images.
-    // Also called after ResizeBuffers on fullscreen.
+    // They need to be identical to the drawing backbuffer in size and color
+    // format. Not shared: the cross-device surface is the keyed-mutex handoff
+    // ring below, matching geo-11's fake-backbuffer -> handoff shape.
 
     {
         ComPtr<ID3D11Texture2D> drawing_backbuffer;
@@ -671,7 +800,6 @@ HRESULT init_dx11()
 
         D3D11_TEXTURE2D_DESC texture_desc;
         drawing_backbuffer->GetDesc(&texture_desc);
-        texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED;
 
         HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_left_eye_tex));
         HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_right_eye_tex));
@@ -679,14 +807,55 @@ HRESULT init_dx11()
         HR(g_pd3dDevice->CreateRenderTargetView(g_left_eye_tex.Get(), nullptr, &g_left_eye_RTV));
         HR(g_pd3dDevice->CreateRenderTargetView(g_right_eye_tex.Get(), nullptr, &g_right_eye_RTV));
 
-        ComPtr<IDXGIResource> left_eye_dxgi;
-        HR(g_left_eye_tex.As(&left_eye_dxgi));
-        HR(left_eye_dxgi->GetSharedHandle(&g_left_eye_handle));
-        ComPtr<IDXGIResource> right_eye_dxgi;
-        HR(g_right_eye_tex.As(&right_eye_dxgi));
-        HR(right_eye_dxgi->GetSharedHandle(&g_right_eye_handle));
+        // The geo-11 handoff ring: 2-slice keyed-mutex array textures, both
+        // slots created up front (see the globals comment for the protocol).
+        D3D11_TEXTURE2D_DESC handoff_desc = {};
+        handoff_desc.Width               = texture_desc.Width;
+        handoff_desc.Height              = texture_desc.Height;
+        handoff_desc.MipLevels           = 1;
+        handoff_desc.ArraySize           = 2;
+        handoff_desc.Format              = texture_desc.Format;
+        handoff_desc.SampleDesc.Count    = 1;
+        handoff_desc.Usage               = D3D11_USAGE_DEFAULT;
+        handoff_desc.BindFlags           = D3D11_BIND_SHADER_RESOURCE;
+        handoff_desc.MiscFlags           = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
-        g_out << "create_eye_textures for render device completed " << std::endl;
+        for (int i = 0; i < HANDOFF_SLOTS; i++)
+        {
+            HR(g_pd3dDevice->CreateTexture2D(&handoff_desc, nullptr, &g_handoff_tex[i]));
+            HR(g_handoff_tex[i].As(&g_handoff_mutex[i]));
+
+            ComPtr<IDXGIResource> handoff_dxgi;
+            HR(g_handoff_tex[i].As(&handoff_dxgi));
+            HR(handoff_dxgi->GetSharedHandle(&g_handoff_handle[i]));
+        }
+
+        // Content-readiness fence (see the globals comment). Optional: a
+        // runtime without ID3D11Fence just leaves the gate disabled.
+        ComPtr<ID3D11Device5> device5;
+        if (SUCCEEDED(g_pd3dDevice->QueryInterface(__uuidof(ID3D11Device5), (void**)&device5)))
+            device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence), (void**)&g_handoff_fence);
+        if (g_handoff_fence &&
+            FAILED(g_pImmediateContext->QueryInterface(__uuidof(ID3D11DeviceContext4), (void**)&g_game_context4)))
+            g_handoff_fence.Reset();
+        if (!g_handoff_fence)
+        {
+            g_out << "!! ID3D11Fence unavailable, readiness gate disabled" << std::endl;
+            log();
+        }
+
+        // Timestamp query ring for the measured GPU-frame-time log.
+        for (int i = 0; i < ARRAYSIZE(g_probe); i++)
+        {
+            D3D11_QUERY_DESC qd = {};
+            qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+            HR(g_pd3dDevice->CreateQuery(&qd, &g_probe[i].disjoint));
+            qd.Query = D3D11_QUERY_TIMESTAMP;
+            HR(g_pd3dDevice->CreateQuery(&qd, &g_probe[i].t0));
+            HR(g_pd3dDevice->CreateQuery(&qd, &g_probe[i].t1));
+        }
+
+        g_out << "create_eye_textures + handoff ring for render device completed " << std::endl;
         log();
     }
 
@@ -775,6 +944,29 @@ HRESULT init_dx11()
     shader_blob->Release();
     if (FAILED(hr))
         return hr;
+
+    // Compile and create the GPU load pixel shader (F8), plus its b1 constant
+    // buffer carrying the iteration count.
+    hr = compile_shader_from_file(L"Tutorial07.fx", "PS_Load", "ps_4_0", &shader_blob);
+    if (FAILED(hr))
+    {
+        MessageBox(nullptr, L"The FX file cannot be compiled (PS_Load).", L"Error", MB_OK);
+        return hr;
+    }
+    hr = g_pd3dDevice->CreatePixelShader(shader_blob->GetBufferPointer(), shader_blob->GetBufferSize(), nullptr, &g_pLoadPS);
+    shader_blob->Release();
+    if (FAILED(hr))
+        return hr;
+
+    {
+        D3D11_BUFFER_DESC load_bd = {};
+        load_bd.Usage             = D3D11_USAGE_DEFAULT;
+        load_bd.ByteWidth         = 16;  // uint4 LoadParams
+        load_bd.BindFlags         = D3D11_BIND_CONSTANT_BUFFER;
+        hr                        = g_pd3dDevice->CreateBuffer(&load_bd, nullptr, &g_pLoadCB);
+        if (FAILED(hr))
+            return hr;
+    }
 
     // Create vertex buffer for the cube
     simple_vertex vertices[] = {
@@ -902,6 +1094,24 @@ void cleanup_device()
     if (g_pImmediateContext)
         g_pImmediateContext->ClearState();
 
+    if (g_pLoadCB)
+        g_pLoadCB->Release();
+    if (g_pLoadPS)
+        g_pLoadPS->Release();
+    for (int i = 0; i < HANDOFF_SLOTS; i++)
+    {
+        g_handoff_mutex[i].Reset();
+        g_handoff_tex[i].Reset();
+    }
+    g_game_context4.Reset();
+    g_handoff_fence.Reset();
+    for (int i = 0; i < ARRAYSIZE(g_probe); i++)
+    {
+        g_probe[i].disjoint.Reset();
+        g_probe[i].t0.Reset();
+        g_probe[i].t1.Reset();
+    }
+
     if (g_pSharedCB)
         g_pSharedCB->Release();
     if (g_pVertexBuffer)
@@ -994,10 +1204,37 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
 }
 
 //--------------------------------------------------------------------------------------
-// Render current image, eye independent.
+// Render current image, eye independent. eye_cb is this eye's projection setup;
+// updated here (not by the caller) because the load pass below also writes b0.
 //--------------------------------------------------------------------------------------
-void draw_cube(bool rightEye)
+void draw_cube(bool rightEye, const shared_CB& eye_cb)
 {
+    // GPU load burst (F8): a screen-covering cube shaded with the long
+    // dependent-FMA loop, drawn BEFORE the clear wipes it - pure GPU work with
+    // no visual effect, simulating a heavy game's multi-ms command-buffer
+    // burst (the Witcher3-at-max case this lab exists to reproduce).
+    int load_iters = g_load_iterations;
+    if (load_iters > 0)
+    {
+        ID3D11RenderTargetView* rtv_load[] = { rightEye ? g_right_eye_RTV.Get() : g_left_eye_RTV.Get() };
+        g_pImmediateContext->OMSetRenderTargets(1, rtv_load, nullptr);
+
+        shared_CB load_cb   = {};
+        load_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(8.0f, 8.0f, 8.0f));
+        load_cb.mView       = XMMatrixTranspose(g_View);
+        load_cb.mProjection = XMMatrixTranspose(g_Projection);
+        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &load_cb, 0, 0);
+
+        UINT load_params[4] = { (UINT)load_iters, 0, 0, 0 };
+        g_pImmediateContext->UpdateSubresource(g_pLoadCB, 0, nullptr, load_params, 0, 0);
+
+        g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
+        g_pImmediateContext->PSSetShader(g_pLoadPS, nullptr, 0);
+        g_pImmediateContext->PSSetConstantBuffers(1, 1, &g_pLoadCB);
+        g_pImmediateContext->DrawIndexed(36, 0, 0);
+    }
+
     //
     // Clear the buffer
     //
@@ -1025,8 +1262,10 @@ void draw_cube(bool rightEye)
     //
     // Render the cube
     //
-    // Projection matrix in g_pSharedCB determines eye view.
+    // Projection matrix in g_pSharedCB determines eye view. Re-uploaded here
+    // because the load pass above may have overwritten b0.
     //
+    g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &eye_cb, 0, 0);
     g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
@@ -1066,6 +1305,49 @@ int64_t stall     = 0;
 int     out_limit = 4;
 
 //--------------------------------------------------------------------------------------
+// Game side of the geo-11 handoff (CopyToHandoff port): publish the just-rendered
+// L/R pair into the next FIFO slot under its keyed mutex, with the readiness
+// fence signaled behind the copies. Never wedges the game thread: a 150ms cap
+// means a hung presenter costs one dropped frame, not a hang.
+//--------------------------------------------------------------------------------------
+void copy_to_handoff()
+{
+    int slot = g_handoff_write_index % HANDOFF_SLOTS;
+
+    HRESULT hr = g_handoff_mutex[slot]->AcquireSync(0, 150);
+    if (hr != S_OK)
+    {
+        static ULONGLONG last_drop_log = 0;
+        ULONGLONG        now           = GetTickCount64();
+        if (now - last_drop_log >= 1000)
+        {
+            g_out << "!! game-side AcquireSync(0) slot " << slot << " failed/timed out: 0x" << std::hex << hr << std::dec << " (dropping frame)" << std::endl;
+            log();
+            last_drop_log = now;
+        }
+        return;
+    }
+
+    g_pImmediateContext->CopySubresourceRegion(g_handoff_tex[slot].Get(), 0, 0, 0, 0, g_left_eye_tex.Get(), 0, nullptr);
+    g_pImmediateContext->CopySubresourceRegion(g_handoff_tex[slot].Get(), 1, 0, 0, 0, g_right_eye_tex.Get(), 0, nullptr);
+
+    // Readiness signal: completes only when the GPU has actually executed the
+    // copies above - which queue behind this frame's whole render burst.
+    if (g_game_context4)
+    {
+        g_handoff_fence_value++;
+        g_slot_fence_value[slot] = g_handoff_fence_value;
+        g_game_context4->Signal(g_handoff_fence.Get(), g_handoff_fence_value);
+    }
+
+    // Ensure the copies are submitted to the GPU before handing the key over.
+    g_pImmediateContext->Flush();
+
+    g_handoff_mutex[slot]->ReleaseSync(1);
+    g_handoff_write_index++;
+}
+
+//--------------------------------------------------------------------------------------
 // Render a frame, both eyes. But do not Present.
 //--------------------------------------------------------------------------------------
 void render_frame()
@@ -1100,112 +1382,91 @@ void render_frame()
     // Does not seem to ever hit exception handler, which is what we'd expect.
     try
     {
-        // We want to lock around the drawing, so that the refresh can not get
-        // half baked results.
-        g_drawing_mutex.lock();
+        // GPU frame-time probe: poll the result recorded ARRAYSIZE(g_probe)
+        // frames ago (never stalls), then bracket this frame's submissions.
+        gpu_probe& probe = g_probe[g_probe_index % ARRAYSIZE(g_probe)];
+        if (probe.inflight)
         {
-            // <----------------------- Left Eye -------------------------------
-            //
-            // Specifically set the LeftEye as active, not just toggle. This seems
-            // to help get proper sync when the app is active, but doesn't help with
-            // alt-tab eye swaps.
-            double left_eye_start = g_Timer.GetElapsedMicroseconds();
-
-            //
-            // Drawing same object twice, once for each eye.
-            // Eye specific setup is for the Projection matrix.
-            // The _31 parameter is the X translation for the off center Projection.
-            // The _41 parameter is the X translation after the perspective divide.
-            // This sequence works to handle both convergence and separation hot keys properly.
-            //
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+            UINT64                              ts0, ts1;
+            if (g_pImmediateContext->GetData(probe.disjoint.Get(), &dj, sizeof(dj), 0) == S_OK && !dj.Disjoint &&
+                g_pImmediateContext->GetData(probe.t0.Get(), &ts0, sizeof(ts0), 0) == S_OK &&
+                g_pImmediateContext->GetData(probe.t1.Get(), &ts1, sizeof(ts1), 0) == S_OK)
             {
-                cb.mWorld = XMMatrixTranspose(g_World);
-                cb.mView  = XMMatrixTranspose(g_View);
-
-                cb.mProjection = g_Projection;
-                cb.mProjection._31 -= separation;
-                cb.mProjection._41 = convergence;
-                cb.mProjection     = XMMatrixTranspose(cb.mProjection);
-                g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-                draw_cube(false);
+                g_gpu_frame_ms = (float)((ts1 - ts0) * 1000.0 / dj.Frequency);
             }
-            //g_pImmediateContext->Flush();
-            //hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
-            //if (FAILED(hr))
-            //{
-            //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-            //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            //    log();
-            //    DebugBreak();
-            //}
-
-            double left_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - left_eye_start) / 1000.0f;
-            if (left_eye_elapsed > 18.0f)
-            {
-                g_out << "!! Left frame dropped. Eye swap." << std::endl;
-                log();
-                out_limit = 2;
-                //g_shutterGlasses.InitEmitter();	// re-init on drops
-            }
-            if (out_limit > 0)
-            {
-                g_out << "Left eye frame time:  " << left_eye_elapsed << " ms" << std::endl;
-                log();
-            }
-
-            // <----------------------- Right Eye -------------------------------
-            //
-            double right_eye_start = g_Timer.GetElapsedMicroseconds();
-
-            {
-                cb.mWorld = XMMatrixTranspose(g_World);
-                cb.mView  = XMMatrixTranspose(g_View);
-
-                cb.mProjection = g_Projection;
-                cb.mProjection._31 += separation;
-                cb.mProjection._41 = -convergence;
-                cb.mProjection     = XMMatrixTranspose(cb.mProjection);
-                g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-
-                draw_cube(true);
-            }
-            //g_pImmediateContext->Flush();
-            //hr = g_pSwapChain->Present(1, DXGI_PRESENT_TEST);
-            //if (FAILED(hr))
-            //{
-            //    HRESULT reason = g_pd3dDevice->GetDeviceRemovedReason();
-            //    g_out << "Present failed: " << hr << "  Reason: " << reason << std::endl;
-            //    log();
-            //    DebugBreak();
-            //}
-
-            double right_eye_elapsed = (g_Timer.GetElapsedMicroseconds() - right_eye_start) / 1000.0f;
-            if (right_eye_elapsed > 18.0f)
-            {
-                g_out << "!! Right frame dropped. Eye swap." << std::endl;
-                log();
-                out_limit = 2;
-                //g_shutterGlasses.InitEmitter();	// re-init on drops
-            }
-            if (out_limit > 0)
-            {
-                g_out << "Right eye frame time: " << right_eye_elapsed << " ms" << std::endl;
-                log();
-            }
-
-            double current_frame_time = g_Timer.GetElapsedMicroseconds();
-            if (out_limit > 0)
-            {
-                g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
-                log();
-
-                out_limit--;
-            }
-            g_lastFrame = current_frame_time;
+            probe.inflight = false;
         }
-        g_drawing_mutex.unlock();
-        g_pImmediateContext->Flush();
+        g_pImmediateContext->Begin(probe.disjoint.Get());
+        g_pImmediateContext->End(probe.t0.Get());
+
+        // <----------------------- Left Eye -------------------------------
+        //
+        // Drawing same object twice, once for each eye.
+        // Eye specific setup is for the Projection matrix.
+        // The _31 parameter is the X translation for the off center Projection.
+        // The _41 parameter is the X translation after the perspective divide.
+        // This sequence works to handle both convergence and separation hot keys properly.
+        //
+        {
+            cb.mWorld = XMMatrixTranspose(g_World);
+            cb.mView  = XMMatrixTranspose(g_View);
+
+            cb.mProjection = g_Projection;
+            cb.mProjection._31 -= separation;
+            cb.mProjection._41 = convergence;
+            cb.mProjection     = XMMatrixTranspose(cb.mProjection);
+
+            draw_cube(false, cb);
+        }
+
+        // <----------------------- Right Eye -------------------------------
+        //
+        {
+            cb.mWorld = XMMatrixTranspose(g_World);
+            cb.mView  = XMMatrixTranspose(g_View);
+
+            cb.mProjection = g_Projection;
+            cb.mProjection._31 += separation;
+            cb.mProjection._41 = -convergence;
+            cb.mProjection     = XMMatrixTranspose(cb.mProjection);
+
+            draw_cube(true, cb);
+        }
+
+        // Publish the pair to the presenter (keyed mutex + fence + Flush).
+        copy_to_handoff();
+
+        // Close this frame's GPU probe: the span covers both eyes' draws
+        // (including the load pass) plus the handoff copies - the same GPU
+        // work a real game's frame puts ahead of its handoff.
+        g_pImmediateContext->End(probe.t1.Get());
+        g_pImmediateContext->End(probe.disjoint.Get());
+        probe.inflight = true;
+        g_probe_index++;
+
+        // Measured GPU frame time, logged every ~2 seconds so the F8 load can
+        // be dialed against a real target (Witcher3 at max ~= 25ms).
+        {
+            static int frames_since_log = 0;
+            if (++frames_since_log >= 240)
+            {
+                frames_since_log = 0;
+                g_out << "== GPU frame: " << g_gpu_frame_ms << " ms  (load " << g_load_iterations
+                      << " iters, game " << g_render_fps << " fps target)" << std::endl;
+                log();
+            }
+        }
+
+        double current_frame_time = g_Timer.GetElapsedMicroseconds();
+        if (out_limit > 0)
+        {
+            g_out << "  full frame time:             " << (current_frame_time - g_lastFrame) / 1000.0f << " ms" << std::endl;
+            log();
+
+            out_limit--;
+        }
+        g_lastFrame = current_frame_time;
 
         // Frame-rate throttle for degenerate-case testing; F5 cycles the target.
         // Paced against a running deadline so the cadence is the actual
@@ -1256,65 +1517,199 @@ void render_frame()
 
 void refresh_thread(void)
 {
-    g_out << " --> refresh_thread Start" << std::endl;
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+
+    g_out << " --> refresh_thread Start  (windowed: " << g_windowed
+          << ", high_priority: " << g_high_priority
+          << ", frame_latency: " << g_frame_latency
+          << ", fence_gate: " << g_fence_gate << ")" << std::endl;
     log();
 
     ComPtr<ID3D11Device>        refresh_device;
     ComPtr<ID3D11DeviceContext> refresh_context;
     ComPtr<ID3D11Texture2D>     refresh_backbuffer;
+    ComPtr<ID3D12Device>        device12;
+    ComPtr<ID3D12CommandQueue>  queue12;
 
-    ComPtr<ID3D11Texture2D> left_eye_share;
-    ComPtr<ID3D11Texture2D> right_eye_share;
-    ComPtr<ID3D11Texture2D> refresh_left_eye;
-    ComPtr<ID3D11Texture2D> refresh_right_eye;
+    ComPtr<ID3D11Texture2D> handoff_share[HANDOFF_SLOTS];
+    ComPtr<IDXGIKeyedMutex> handoff_mutex[HANDOFF_SLOTS];
+    ComPtr<ID3D11Texture2D> local_pair;
 
-    // Upon startup, we need to create our output SwapChain that is a copy of the main
-    // drawing environment.  It is going to draw directly to the main window. We duplicate
-    // the Description and Device Flags so as to be exactly the same output, which will
-    // allow us to use CopyResource.
-    // We tweak the BufferCount and SwapEffect to avoid conflicts with whatever the
-    // game specified for them.  The OutputWindow must be the main viewable window,
-    // for full screen to work.
-    // We recreate the swapchain at window state changes, rather than ResizeBuffers.
+    // Presenter device. F3 path: an 11on12 wrapper over a D3D12 HIGH-priority
+    // command queue, so our copies and presents preempt the game's command-
+    // buffer bursts instead of queueing behind them (geo-11's
+    // high_priority_queue; the mechanism VR compositors use). d3d12.dll is
+    // loaded dynamically so the plain path has no new link dependency.
+    if (g_high_priority)
+    {
+        HMODULE                 d3d12    = LoadLibraryW(L"d3d12.dll");
+        PFN_D3D12_CREATE_DEVICE create12 = d3d12 ? (PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr;
+        if (create12 && SUCCEEDED(create12(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device12))))
+        {
+            D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+            queue_desc.Type                     = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            queue_desc.Priority                 = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+            HR(device12->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue12)));
 
-    DXGI_SWAP_CHAIN_DESC desc = {};
-    g_pSwapChain->GetDesc(&desc);
-    desc.BufferCount  = 2;                                 // Flip model requires at least 2.
-    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Flip model, so GetFrameStatistics reports real scanout refreshes.
-    desc.OutputWindow = g_hWnd;
-    desc.Windowed     = g_windowed;
-    UINT device_flags = g_pd3dDevice->GetCreationFlags();
+            IUnknown* queue_iface = queue12.Get();
+            HR(D3D11On12CreateDevice(device12.Get(), 0, nullptr, 0, &queue_iface, 1, 0, &refresh_device, &refresh_context, nullptr));
+            g_out << "   presenter on HIGH-priority D3D12 queue via 11on12" << std::endl;
+            log();
+        }
+        else
+        {
+            g_out << "   D3D12 unavailable, falling back to normal-priority D3D11" << std::endl;
+            log();
+        }
+    }
+    if (!refresh_device)
+    {
+        HR(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &refresh_device, nullptr, &refresh_context));
+        g_out << "   presenter on normal-priority D3D11 device" << std::endl;
+        log();
+    }
 
-    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_refresh_swapchain, &refresh_device, nullptr, &refresh_context));
-    g_out << "refresh_thread CreateDeviceAndSwapChain for output window. SwapChain: " << g_refresh_swapchain.GetAddressOf() << " Windowed: " << desc.Windowed << std::endl;
-    log();
-
-    // Exactly one present in flight: makes "which refresh will this Present land on"
-    // deterministic, and Present(1, 0) then paces this loop at vblank rate.
+    // Presents in flight (F11): 2 submits each present ~2 refreshes ahead of
+    // its scanout deadline (geo-11's zero-flicker default); 1 saves a refresh
+    // of latency but leaves only ~8ms of GPU slack.
     ComPtr<IDXGIDevice1> dxgi_device;
     HR(refresh_device.As(&dxgi_device));
-    HR(dxgi_device->SetMaximumFrameLatency(1));
+    HR(dxgi_device->SetMaximumFrameLatency(g_frame_latency));
 
+    // The presenter swapchain, geo-11 shape: BufferCount 3 (latency N needs
+    // N+1 buffers or flip model blocks on buffer starvation), FLIP_SEQUENTIAL
+    // so GetFrameStatistics reports real scanout refreshes, created via the
+    // device's own factory (required for the 11on12 path), and created
+    // WINDOWED - exclusive fullscreen is engaged afterward with a
+    // revalidating ResizeBuffers, matching geo-11's engage sequence exactly.
+    DXGI_SWAP_CHAIN_DESC desc = {};
+    g_pSwapChain->GetDesc(&desc);
+    desc.BufferCount  = 3;
+    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    desc.OutputWindow = g_hWnd;
+    desc.Windowed     = TRUE;
+
+    ComPtr<IDXGIAdapter> adapter;
+    HR(dxgi_device->GetAdapter(&adapter));
+    ComPtr<IDXGIFactory1> factory;
+    HR(adapter->GetParent(IID_PPV_ARGS(&factory)));
+    HR(factory->CreateSwapChain(refresh_device.Get(), &desc, &g_refresh_swapchain));
+    factory->MakeWindowAssociation(g_hWnd, DXGI_MWA_NO_ALT_ENTER);
+    g_out << "refresh_thread CreateSwapChain for output window. SwapChain: " << g_refresh_swapchain.GetAddressOf() << std::endl;
+    log();
+
+    if (!g_windowed)
+    {
+        HRESULT hr = g_refresh_swapchain->SetFullscreenState(TRUE, nullptr);
+        if (SUCCEEDED(hr))
+        {
+            hr = g_refresh_swapchain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+            g_out << "   exclusive fullscreen engaged (ResizeBuffers: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        }
+        else
+        {
+            g_out << "   SetFullscreenState(TRUE) failed: 0x" << std::hex << hr << std::dec << ", staying windowed" << std::endl;
+        }
+        log();
+    }
+
+    // Backbuffer fetched once (after any fullscreen transition) and reused
+    // across every Present - validated for this flip-model chain.
     HR(g_refresh_swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
-    // The original shared surfaces, updated by the game render loop.
-    HR(refresh_device->OpenSharedResource(g_left_eye_handle, __uuidof(ID3D11Texture2D), (void**)&left_eye_share));
-    HR(refresh_device->OpenSharedResource(g_right_eye_handle, __uuidof(ID3D11Texture2D), (void**)&right_eye_share));
-
-    // A local copy of the game data, so that it can independently display with no sync requirement.
-    D3D11_TEXTURE2D_DESC eye_desc;
-    left_eye_share.Get()->GetDesc(&eye_desc);
-    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_left_eye));
-    right_eye_share.Get()->GetDesc(&eye_desc);
-    HR(refresh_device->CreateTexture2D(&eye_desc, nullptr, &refresh_right_eye));
-
-    // Take an initial copy of the eye pair, so the first presents show real data.
-    g_drawing_mutex.lock();
+    // Open the handoff ring on the presenter device, and create the local
+    // 2-slice pair: both presents of a pair always come from the same snapshot.
+    for (int i = 0; i < HANDOFF_SLOTS; i++)
     {
-        refresh_context->CopyResource(refresh_left_eye.Get(), left_eye_share.Get());
-        refresh_context->CopyResource(refresh_right_eye.Get(), right_eye_share.Get());
+        HR(refresh_device->OpenSharedResource(g_handoff_handle[i], __uuidof(ID3D11Texture2D), (void**)&handoff_share[i]));
+        HR(handoff_share[i].As(&handoff_mutex[i]));
     }
-    g_drawing_mutex.unlock();
+    D3D11_TEXTURE2D_DESC pair_desc;
+    handoff_share[0]->GetDesc(&pair_desc);
+    pair_desc.MiscFlags = 0;
+    pair_desc.BindFlags = 0;
+    HR(refresh_device->CreateTexture2D(&pair_desc, nullptr, &local_pair));
+
+    // Presenter side of the handoff (geo-11's AdoptPair): drain the ring in
+    // order; the readiness fence gate (F9) refuses a pair whose GPU copy is
+    // still queued behind the game's frame - queuing our copy then would make
+    // this thread's whole queue (pair copy, backbuffer copy, Present) inherit
+    // that wait, drain the flip queue, and repeat one eye on screen: the
+    // sub-60 wobble under test. Sub-timed for the slip diagnostics.
+    UINT   read_index          = 0;
+    UINT64 last_adopted_fence  = 0;
+    float  adopt_acquire_ms = 0, adopt_copy_ms = 0, adopt_release_ms = 0;
+
+    LARGE_INTEGER qpc_freq;
+    QueryPerformanceFrequency(&qpc_freq);
+    const double qpc_to_ms = 1000.0 / (double)qpc_freq.QuadPart;
+
+    auto adopt_pair = [&](DWORD timeout_ms) -> bool {
+        int           slot = read_index % HANDOFF_SLOTS;
+        LARGE_INTEGER t0, t1, t2, t3;
+        QueryPerformanceCounter(&t0);
+
+        // Readiness gate, checked BEFORE AcquireSync ever runs: the acquire
+        // is not trustworthy as a non-blocking probe - on an 11on12 device it
+        // has been measured blocking 5-10ms even with a 0 timeout, waiting on
+        // the game's still-executing handoff copy. That is the presenter
+        // waiting on the game, the exact thing this architecture forbids
+        // (suspected root of the geo-11 sub-120fps wobble). FIFO fence values
+        // are sequential - one per delivered pair - so the next pair's value
+        // is known (last adopted + 1) without reading anything the game owns:
+        // this check is pure CPU, and once it passes, the pair's GPU copy is
+        // complete AND its ReleaseSync (issued just after the Signal) has
+        // happened, so the acquire below succeeds instantly.
+        if (g_fence_gate && g_handoff_fence && g_handoff_fence->GetCompletedValue() < last_adopted_fence + 1)
+        {
+            adopt_acquire_ms = 0;
+            adopt_copy_ms    = 0;
+            adopt_release_ms = 0;
+            return false;  // Pair not GPU-complete yet: reuse the current pair, never wait.
+        }
+
+        HRESULT hr       = handoff_mutex[slot]->AcquireSync(1, timeout_ms);
+        QueryPerformanceCounter(&t1);
+        adopt_acquire_ms = (float)((t1.QuadPart - t0.QuadPart) * qpc_to_ms);
+        adopt_copy_ms    = 0;
+        adopt_release_ms = 0;
+        if (hr != S_OK)  // WAIT_TIMEOUT (no new pair) or failure: reuse the current pair.
+            return false;
+
+        // Post-acquire backstop (should never fire once the pre-check above
+        // passed - the fence is monotonic - but cheap defense in depth).
+        if (g_fence_gate && g_handoff_fence && g_handoff_fence->GetCompletedValue() < g_slot_fence_value[slot])
+        {
+            handoff_mutex[slot]->ReleaseSync(1);  // Hand it back untouched; retry next left vblank.
+            return false;
+        }
+
+        refresh_context->CopyResource(local_pair.Get(), handoff_share[slot].Get());
+        QueryPerformanceCounter(&t2);
+        adopt_copy_ms = (float)((t2.QuadPart - t1.QuadPart) * qpc_to_ms);
+
+        handoff_mutex[slot]->ReleaseSync(0);
+        QueryPerformanceCounter(&t3);
+        adopt_release_ms = (float)((t3.QuadPart - t2.QuadPart) * qpc_to_ms);
+
+        last_adopted_fence = g_slot_fence_value[slot];
+        read_index++;
+        return true;
+    };
+
+    // Take an initial copy of the eye pair, so the first presents show real
+    // data. Retry loop, because adopt_pair also refuses fence-incomplete pairs.
+    {
+        ULONGLONG seed_start = GetTickCount64();
+        bool      seeded     = false;
+        while (g_running && !(seeded = adopt_pair(2)) && GetTickCount64() - seed_start < 2000)
+            Sleep(1);
+        if (!seeded)
+        {
+            g_out << "** initial pair seed timed out" << std::endl;
+            log();
+        }
+    }
 
     // Emitter metronome: the glasses are commanded from a dedicated vblank-paced
     // thread, never from Present time. The emitter free-runs its own shutter
@@ -1329,13 +1724,15 @@ void refresh_thread(void)
     ComPtr<IDXGIOutput> refresh_output;
     HR(g_refresh_swapchain->GetContainingOutput(&refresh_output));
 
-    std::thread emitter_thread([refresh_output]() {
+    std::thread emitter_thread([refresh_output]() 
+    {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
         while (g_running)
         {
             if (FAILED(refresh_output->WaitForVBlank()))
             {
+                DebugBreak();
                 Sleep(8);
                 continue;
             }
@@ -1378,19 +1775,29 @@ void refresh_thread(void)
 
     struct present_record
     {
-        UINT present_count;
-        UINT predicted_refresh;
-        bool left;
+        UINT  present_count;
+        UINT  predicted_refresh;
+        bool  left;
+        bool  anchored;          // Predicted with a valid stats anchor.
+        float gap_ms;            // Since the previous Present returned (stats readback + loop overhead).
+        float adopt_ms;          // AcquireSync + fence gate + pair CopyResource submit.
+        float copy_ms;           // Backbuffer copy submit.
+        float present_ms;        // The Present call including its pacing block.
+        float adopt_acquire_ms;  // AcquireSync / CopyResource / ReleaseSync
+        float adopt_copy_ms;     // breakdown of adopt_ms; all zero on
+        float adopt_release_ms;  // right-presents (no adoption attempted).
     };
     present_record history[16] = {};
 
-    bool stats_valid           = false;  // Anchor usable? False until first stats arrive, and after disjoint/occlusion.
-    UINT anchor_present        = 0;      // stats.PresentCount at the anchor.
-    UINT anchor_refresh        = 0;      // stats.PresentRefreshCount at the anchor.
-    UINT presents_issued       = 0;      // GetLastPresentCount after our latest Present.
-    UINT last_verified_present = 0;
-    bool prev_left             = false;
-    int  startup_log           = 8;
+    bool     stats_valid           = false;  // Anchor usable? False until first stats arrive, and after disjoint/occlusion.
+    UINT     anchor_present        = 0;      // stats.PresentCount at the anchor.
+    UINT     anchor_refresh        = 0;      // stats.PresentRefreshCount at the anchor.
+    UINT     presents_issued       = 0;      // GetLastPresentCount after our latest Present.
+    UINT     last_verified_present = 0;
+    bool     prev_left             = false;
+    int      startup_log           = 8;
+    LONGLONG prev_present_return   = 0;
+    bool     occluded              = false;
 
     UINT     period_base_refresh = 0;  // First sync record since the last disjoint;
     LONGLONG period_base_qpc     = 0;  // the vblank period is measured from here.
@@ -1428,32 +1835,64 @@ void refresh_thread(void)
 
         // Pair boundary: only adopt a new game pair when the upcoming vblank is a
         // left, so a pair can never be split across a boundary (no L/R images from
-        // different game frames). try_lock: if the renderer is mid-frame, reuse the
-        // previous pair- the presenter never blocks on the game.
-        if (left && g_drawing_mutex.try_lock())
-        {
-            refresh_context->CopyResource(refresh_left_eye.Get(), left_eye_share.Get());
-            refresh_context->CopyResource(refresh_right_eye.Get(), right_eye_share.Get());
-            g_drawing_mutex.unlock();
-        }
+        // different game frames). Try-acquire (0 timeout): if the game hasn't
+        // produced a new (GPU-complete) pair, adopt_pair returns false and the
+        // previous pair is reused - the presenter never blocks on the game.
+        LARGE_INTEGER t_start, t_adopt, t_copy, t_present;
+        QueryPerformanceCounter(&t_start);
 
-        refresh_context->CopyResource(refresh_backbuffer.Get(), left ? refresh_left_eye.Get() : refresh_right_eye.Get());
+        adopt_acquire_ms = 0;
+        adopt_copy_ms    = 0;
+        adopt_release_ms = 0;
+        if (left)
+            adopt_pair(0);
+        QueryPerformanceCounter(&t_adopt);
+
+        refresh_context->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, local_pair.Get(), left ? 0 : 1, nullptr);
+        QueryPerformanceCounter(&t_copy);
 
         HRESULT hr = g_refresh_swapchain->Present(1, 0);
+        QueryPerformanceCounter(&t_present);
+
+        // Teardown: the main thread drops g_running, then releases exclusive
+        // fullscreen while this thread may be mid-loop. Swapchain calls fail
+        // during that transition - exit before treating any of them as fatal.
+        if (!g_running)
+            break;
+
         if (hr == DXGI_STATUS_OCCLUDED)
         {
             // Alt-tab etc: nothing reached the screen and the stats go stale.
             // Idle, and re-baseline parity when presents start landing again.
-            stats_valid = false;
-            g_out << "** Presenter occluded. Parity re-baseline pending." << std::endl;
-            log();
+            stats_valid         = false;
+            prev_present_return = 0;
+            if (!occluded)
+            {
+                occluded = true;
+                g_out << "** Presenter occluded. Parity re-baseline pending." << std::endl;
+                log();
+            }
+
+            // Keep draining the handoff while occluded, regardless of parity:
+            // nothing is displayed so pair-boundary discipline doesn't apply,
+            // but the FIFO game would otherwise block on a full ring whenever
+            // the frozen parity stopped on a right.
+            adopt_pair(0);
+
             Sleep(5);
             continue;
         }
+        occluded = false;
         HR(hr);
 
         HR(g_refresh_swapchain->GetLastPresentCount(&presents_issued));
-        history[presents_issued % ARRAYSIZE(history)] = { presents_issued, predicted_refresh, left };
+        history[presents_issued % ARRAYSIZE(history)] = { presents_issued, predicted_refresh, left, stats_valid,
+            prev_present_return ? (float)((t_start.QuadPart - prev_present_return) * qpc_to_ms) : 0.0f,
+            (float)((t_adopt.QuadPart - t_start.QuadPart) * qpc_to_ms),
+            (float)((t_copy.QuadPart - t_adopt.QuadPart) * qpc_to_ms),
+            (float)((t_present.QuadPart - t_copy.QuadPart) * qpc_to_ms),
+            adopt_acquire_ms, adopt_copy_ms, adopt_release_ms };
+        prev_present_return = t_present.QuadPart;
 
         if (startup_log > 0)
         {
@@ -1509,12 +1948,24 @@ void refresh_thread(void)
             const present_record& rec = history[stats.PresentCount % ARRAYSIZE(history)];
             if (rec.present_count == stats.PresentCount)
             {
-                if (stats_valid && stats.PresentRefreshCount != rec.predicted_refresh)
+                if (stats_valid && rec.anchored && stats.PresentRefreshCount != rec.predicted_refresh)
                 {
                     g_out << "!! present " << rec.present_count << " (" << (rec.left ? "L" : "R") << ")"
                           << " predicted refresh: " << rec.predicted_refresh
                           << " landed on: " << stats.PresentRefreshCount
                           << "  slip: " << (int)(stats.PresentRefreshCount - rec.predicted_refresh) << std::endl;
+
+                    // Which leg of the loop ate the frame? This present's
+                    // timings and the preceding one's (the miss is often the
+                    // prior iteration overrunning).
+                    const present_record& prev = history[(stats.PresentCount - 1) % ARRAYSIZE(history)];
+                    g_out << "    timings(ms) this: gap=" << rec.gap_ms << " adopt=" << rec.adopt_ms
+                          << " (acq=" << rec.adopt_acquire_ms << " copy=" << rec.adopt_copy_ms << " rel=" << rec.adopt_release_ms << ")"
+                          << " copy=" << rec.copy_ms << " present=" << rec.present_ms << std::endl;
+                    if (prev.present_count == stats.PresentCount - 1)
+                        g_out << "    timings(ms) prev: gap=" << prev.gap_ms << " adopt=" << prev.adopt_ms
+                              << " (acq=" << prev.adopt_acquire_ms << " copy=" << prev.adopt_copy_ms << " rel=" << prev.adopt_release_ms << ")"
+                              << " copy=" << prev.copy_ms << " present=" << prev.present_ms << std::endl;
                     log();
                 }
                 if (!stats_valid)
@@ -1535,14 +1986,16 @@ void refresh_thread(void)
 
     emitter_thread.join();
 
-    refresh_right_eye.Reset();
-    refresh_left_eye.Reset();
-    right_eye_share.Reset();
-    left_eye_share.Reset();
+    local_pair.Reset();
+    for (int i = 0; i < HANDOFF_SLOTS; i++)
+    {
+        handoff_mutex[i].Reset();
+        handoff_share[i].Reset();
+    }
 
     // Not legal to do from this thread. Hangs.
-    //    HRESULT hr= refresh_swapchain->SetFullscreenState(false, nullptr);
-    //    g_out << " SetFullScreenState to false hr: "<< hr << std::endl;
+    // SetFullscreenState(false) is issued by the main thread (restart_presenter)
+    // BEFORE this thread is joined - the validated ordering.
     log();
 
     // All components are ComPtr and will automatically be disposed.
