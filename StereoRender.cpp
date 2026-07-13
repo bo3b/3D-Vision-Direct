@@ -37,9 +37,10 @@ ComPtr<ID3D11RenderTargetView> g_LR_RTV;
 ID3D11Texture2D*        g_pDepthStencil     = nullptr;
 ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 
-ID3D11VertexShader* g_pVertexShader = nullptr;
-ID3D11PixelShader*  g_pPixelShader  = nullptr;
-ID3D11InputLayout*  g_pVertexLayout = nullptr;
+ID3D11VertexShader*   g_pVertexShader   = nullptr;
+ID3D11GeometryShader* g_pGeometryShader = nullptr;
+ID3D11PixelShader*    g_pPixelShader    = nullptr;
+ID3D11InputLayout*    g_pVertexLayout   = nullptr;
 ID3D11Buffer*       g_pVertexBuffer = nullptr;
 ID3D11Buffer*       g_pIndexBuffer  = nullptr;
 
@@ -65,6 +66,8 @@ struct shared_CB
     XMMATRIX mWorld;
     XMMATRIX mView;
     XMMATRIX mProjection;
+    UINT     EyeIndex;  // Selects the g_LR_RTV array slice: 0 = left, 1 = right.
+    UINT     pad[3];    // Constant buffers must be a multiple of 16 bytes.
 };
 
 //--------------------------------------------------------------------------------------
@@ -241,11 +244,25 @@ HRESULT init_dx11(HWND window)
 
     // Create the pixel shader
     hr = g_pd3dDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_pPixelShader);
+    ps_blob->Release();
+    if (FAILED(hr))
+        return hr;
+
+    // Compile and create the geometry shader. Only job is to stamp
+    // SV_RenderTargetArrayIndex from EyeIndex, so each eye's draw lands in
+    // its own slice of g_LR_RTV.
+    ID3DBlob* gs_blob = nullptr;
+    hr                = compile_shader_from_file(L"Tutorial07.fx", "GS", "gs_4_0", &gs_blob);
     if (FAILED(hr))
     {
-        ps_blob->Release();
+        MessageBox(nullptr, L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
         return hr;
     }
+
+    hr = g_pd3dDevice->CreateGeometryShader(gs_blob->GetBufferPointer(), gs_blob->GetBufferSize(), nullptr, &g_pGeometryShader);
+    gs_blob->Release();
+    if (FAILED(hr))
+        return hr;
 
     // Set the input layout
     g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
@@ -391,11 +408,16 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
     // Render the cube
     //
     // Projection matrix in g_pSharedCB determines eye view. Re-uploaded here
-    // because the load pass above may have overwritten b0.
+    // because the load pass above may have overwritten b0. EyeIndex tells the
+    // GS which g_LR_RTV slice this draw belongs to.
     //
-    g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &eye_cb, 0, 0);
+    shared_CB cb  = eye_cb;
+    cb.EyeIndex   = rightEye ? 1 : 0;
+    g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
     g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
+    g_pImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
+    g_pImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
     g_pImmediateContext->DrawIndexed(36, 0, 0);
 
@@ -410,6 +432,7 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
         bar_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(0.06f, 4.0f, 0.06f) * XMMatrixTranslation(g_bar_x, 1.0f, 0.0f));
         bar_cb.mView       = XMMatrixTranspose(g_View);
         bar_cb.mProjection = XMMatrixTranspose(g_Projection);
+        bar_cb.EyeIndex    = cb.EyeIndex;
         g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &bar_cb, 0, 0);
         g_pImmediateContext->DrawIndexed(36, 0, 0);
     }
@@ -520,6 +543,8 @@ void cleanup_device()
 
     if (g_pVertexShader)
         g_pVertexShader->Release();
+    if (g_pGeometryShader)
+        g_pGeometryShader->Release();
     if (g_pPixelShader)
         g_pPixelShader->Release();
     if (g_pDepthStencil)

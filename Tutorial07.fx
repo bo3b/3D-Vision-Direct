@@ -13,6 +13,8 @@ cbuffer cbShared : register( b0 )
 	matrix World;
 	matrix View;
 	matrix Projection;
+	uint   EyeIndex;   // Selects the g_LR_RTV array slice: 0 = left, 1 = right.
+	uint3  pad;        // Constant buffers must be a multiple of 16 bytes.
 };
 
 
@@ -40,8 +42,38 @@ PS_INPUT VS( VS_INPUT input )
     output.Pos = mul( output.Pos, View );
     output.Pos = mul( output.Pos, Projection );
     output.Tex = input.Tex;
-    
+
     return output;
+}
+
+
+//--------------------------------------------------------------------------------------
+// Geometry Shader: pure passthrough, only exists to stamp
+// SV_RenderTargetArrayIndex, which only a GS (or DS) can output on shader
+// model 4. Routes the whole draw call to the eye's slice of g_LR_RTV, so the
+// two sequential per-eye draws in draw_cube land in slice 0 and slice 1
+// instead of both landing in slice 0.
+//--------------------------------------------------------------------------------------
+struct GS_OUTPUT
+{
+    float4 Pos     : SV_POSITION;
+    float2 Tex     : TEXCOORD0;
+    uint   RTIndex : SV_RenderTargetArrayIndex;
+};
+
+[maxvertexcount(3)]
+void GS( triangle PS_INPUT input[3], inout TriangleStream<GS_OUTPUT> output )
+{
+    GS_OUTPUT o;
+    o.RTIndex = EyeIndex;
+
+    [unroll]
+    for (int i = 0; i < 3; i++)
+    {
+        o.Pos = input[i].Pos;
+        o.Tex = input[i].Tex;
+        output.Append(o);
+    }
 }
 
 

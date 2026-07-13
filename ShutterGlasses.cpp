@@ -145,13 +145,13 @@ DWORD read_from_pipe(HANDLE pipe, uint32_t* buffer, DWORD count)
 NvidiaShutterGlasses::NvidiaShutterGlasses()
 {
     wstringstream log_s;
+
     log_s << "NvidiaShutterGlasses::NvidiaShutterGlasses(" << typeid(*this).name() << "@" << this << ")" << endl;
     OutputDebugString(log_s.str().c_str());
 
     NvAPI_Status status = NvAPI_Initialize();
     if (status != NVAPI_OK)
     {
-        wstringstream log_s;
         log_s << "!!! NvAPI Initialization failed" << endl;
         OutputDebugString(log_s.str().c_str());
         // TODO: force exception, save bool, something?
@@ -229,6 +229,7 @@ NvidiaShutterGlasses::NvidiaShutterGlasses()
 void NvidiaShutterGlasses::WakeEmitter()
 {
     wstringstream log_s;
+
     log_s << "NvidiaShutterGlasses::WakeEmitter(" << typeid(*this).name() << "@" << this << ")" << endl;
     OutputDebugString(log_s.str().c_str());
 
@@ -240,7 +241,6 @@ void NvidiaShutterGlasses::WakeEmitter()
     wake = open_usb_device_filename(L"PIPE02");
     if (wake == INVALID_HANDLE_VALUE)
     {
-        wstringstream log_s;
         log_s << "!!! Failed to open usb Wake pipe? Handle: " << wake << endl;
         OutputDebugString(log_s.str().c_str());
         DebugBreak();
@@ -258,7 +258,6 @@ void NvidiaShutterGlasses::WakeEmitter()
     pipe_usb_init = open_usb_device_filename(L"PIPE02");
     if (pipe_usb_init == INVALID_HANDLE_VALUE)
     {
-        wstringstream log_s;
         log_s << "!!! Failed to open usb pipe_usb_init pipe? Handle: " << pipe_usb_init << endl;
         OutputDebugString(log_s.str().c_str());
         DebugBreak();
@@ -266,7 +265,6 @@ void NvidiaShutterGlasses::WakeEmitter()
     pipe_usb_swaps = open_usb_device_filename(L"PIPE00");
     if (pipe_usb_swaps == INVALID_HANDLE_VALUE)
     {
-        wstringstream log_s;
         log_s << "!!! Failed to open usb pipe_usb_swaps pipe? Handle: " << pipe_usb_swaps << endl;
         OutputDebugString(log_s.str().c_str());
         DebugBreak();
@@ -296,6 +294,7 @@ NvidiaShutterGlasses::~NvidiaShutterGlasses()
 void NvidiaShutterGlasses::InitEmitter()
 {
     wstringstream log_s;
+
     log_s << "NvidiaShutterGlasses::InitEmitter(" << typeid(*this).name() << "@" << this << ")" << endl;
     OutputDebugString(log_s.str().c_str());
 
@@ -324,7 +323,6 @@ void NvidiaShutterGlasses::InitEmitter()
     uint32_t timeout = (int)(rate * 4);        // idle timeout(number of frames)
 
     {
-        wstringstream log_s;
         log_s << endl
               << "----- From monitors.ini ------" << endl
               << "Monitor: " << main.monitor_name << "       " << endl
@@ -518,7 +516,6 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_EnumPhysicalGPUs(gpu_handles, &gpu_count);
     if (status != NVAPI_OK)
     {
-        wstringstream log_s;
         log_s << "!!! Failed to enumerate NVidia GPUs - none in system?" << endl;
         NvAPI_Unload();
         OutputDebugString(log_s.str().c_str());
@@ -533,7 +530,6 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_GPU_GetConnectedDisplayIds(gpu_handles[0], display_ids, &display_count, 0);
     if (status != NVAPI_OK || display_count == 0)
     {
-        wstringstream log_s;
         log_s << "!!! Failed to get connected display IDs. Count: " << display_count << endl;
         NvAPI_Unload();
         OutputDebugString(log_s.str().c_str());
@@ -558,14 +554,12 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
     status = NvAPI_DISP_GetTiming(display_ids[0].displayId, &current, &timing);
     if (status != NVAPI_OK)
     {
-        wstringstream log_s;
         log_s << "Failed to retrieve current timing parameters" << endl;
         OutputDebugString(log_s.str().c_str());
         return status;
     }
 
     {
-        wstringstream log_s;
         log_s << endl;
         log_s << "Display Timing Details - EDID: " << monitor_edid << endl;
         log_s << "----------------------" << endl;
@@ -612,9 +606,9 @@ NvAPI_Status NvidiaShutterGlasses::GetCurrentResolution()
 
 NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
 {
-    NvAPI_Status status;
-
+    NvAPI_Status  status;
     wstringstream log_s;
+
     log_s << "NvidiaShutterGlasses::EnableLightBoost(" << typeid(*this).name() << "@" << this << ")" << endl;
     OutputDebugString(log_s.str().c_str());
 
@@ -629,7 +623,6 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     status                  = NvAPI_DISP_GetTiming(PrimaryDisplayID, &current, &timing);
     if (status != NVAPI_OK)
     {
-        wstringstream log_s;
         log_s << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
         OutputDebugString(log_s.str().c_str());
         return status;
@@ -663,7 +656,6 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     lightboost.timing.pclk   = standard_pclk * lightboost.timing.VTotal / standard_vtotal;  // deliberately no floats
 
     {
-        wstringstream log_s;
         log_s << "** Switch VTotal from: " << standard_vtotal << " to: " << lightboost.timing.VTotal << endl;
         log_s << "** Switch pclk from: " << standard_pclk << " to: " << lightboost.timing.pclk << endl;
         log_s << "----------------------" << endl;
@@ -675,7 +667,6 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
     status = NvAPI_DISP_TryCustomDisplay(&PrimaryDisplayID, 1, &lightboost);
     if (status != NVAPI_OK)
     {
-        wstringstream log_s;
         log_s << "Failed to retrieve current timing parameters for ID: " << PrimaryDisplayID << endl;
         OutputDebugString(log_s.str().c_str());
         return status;
@@ -691,8 +682,8 @@ NvAPI_Status NvidiaShutterGlasses::EnableLightBoost()
 NvAPI_Status NvidiaShutterGlasses::DisableLightBoost()
 {
     NvAPI_Status status;
-
     wstringstream log_s;
+    
     log_s << "NvidiaShutterGlasses::DisableLightBoost(" << typeid(*this).name() << "@" << this << ")" << endl;
     OutputDebugString(log_s.str().c_str());
 
