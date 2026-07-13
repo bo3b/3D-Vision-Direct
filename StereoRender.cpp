@@ -387,14 +387,8 @@ HRESULT init_dx11(HWND window)
 //--------------------------------------------------------------------------------------
 void draw_cube(bool rightEye, const shared_CB& eye_cb)
 {
-    // Clear the eye buffers
-    //
-    g_pImmediateContext->ClearRenderTargetView(g_LR_RTV.Get(), Colors::OliveDrab);
-
-    // Clear the depth buffer to 1.0 (max depth)
-    //
-    // Also done on a per-eye basis.
-    //
+    // Clear the depth buffer to 1.0 (max depth), per eye: the depth buffer is a
+    // single shared slice, so it must be reset between the two eye draws.
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     assert(g_LR_RTV);  // Must be allocated.
@@ -471,6 +465,11 @@ void render_frame()
     // Does not seem to ever hit exception handler, which is what we'd expect.
     try
     {
+        // Clear both eye slices once, up front. g_LR_RTV covers both slices, so
+        // a single clear resets the whole pair; clearing per eye inside
+        // draw_cube would erase the slice the previous eye just drew.
+        g_pImmediateContext->ClearRenderTargetView(g_LR_RTV.Get(), Colors::OliveDrab);
+
         // <----------------------- Left Eye -------------------------------
         //
         // Drawing same object twice, once for each eye.
