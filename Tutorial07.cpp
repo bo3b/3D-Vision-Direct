@@ -269,8 +269,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                 if (f4_down && !f4_was_down)
                 {
                     g_windowed = !g_windowed;
-                    g_out << "== F4: windowed now " << g_windowed << std::endl;
-                    log();
+                    g_out << "== F4: windowed now " << g_windowed << endlog;
                 }
                 f4_was_down = f4_down;
             }
@@ -318,12 +317,10 @@ HRESULT init_windows(HINSTANCE hInstance, int nCmdShow)
     //g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd)
         return E_FAIL;
-    g_out << "Main refresh window created: " << g_hWnd << std::endl;
-    log();
+    g_out << "Main refresh window created: " << g_hWnd << endlog;
 
     ShowWindow(g_hWnd, nCmdShow);
-    g_out << "Main refresh window shown." << std::endl;
-    log();
+    g_out << "Main refresh window shown." << endlog;
 
     // And a secondary window for rendering to happen. We don't actually need this
     // here, but want to emulate a game injected operation.  This window is not
@@ -366,15 +363,13 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
             {
                 LARGE_INTEGER now;
                 QueryPerformanceCounter(&now);
-                g_out << "--> Deactivate  time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
-                log();
+                g_out << "--> Deactivate  time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << endlog;
             }
             else
             {
                 LARGE_INTEGER now;
                 QueryPerformanceCounter(&now);
-                g_out << "<-- Activate    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << std::endl;
-                log();
+                g_out << "<-- Activate    time: " << g_Timer.GetElapsedMicroseconds() / 1000.0f << " now: " << now.QuadPart << endlog;
             }
             break;
 
@@ -384,8 +379,7 @@ LRESULT CALLBACK window_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
                 UINT width  = LOWORD(lParam);
                 UINT height = HIWORD(lParam);
 
-                g_out << "WM_SIZE event: " << width << "x" << height << std::endl;
-                log();
+                g_out << "WM_SIZE event: " << width << "x" << height << endlog;
             }
             break;
 

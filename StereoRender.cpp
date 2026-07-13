@@ -138,8 +138,7 @@ HRESULT init_dx11(HWND window)
 
     // Create the simple DX11, Device, SwapChain, and Context.
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext));
-    g_out << "init_dx11 CreateDeviceAndSwapChain for hidden render window. SwapChain: " << g_pSwapChain << std::endl;
-    log();
+    g_out << "init_dx11 CreateDeviceAndSwapChain for hidden render window. SwapChain: " << g_pSwapChain << endlog;
 
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.
     // They need to be identical to the drawing backbuffer in size and color format.
@@ -509,14 +508,12 @@ void render_frame()
     }
     catch (const std::exception& e)
     {
-        g_out << "!!!  render_frame exception: " << e.what() << std::endl;
-        log();
+        g_out << "!!!  render_frame exception: " << e.what() << endlog;
         DebugBreak();
     }
     catch (...)
     {
-        g_out << "!!!  Unknown render_frame exception: " << std::endl;
-        log();
+        g_out << "!!!  Unknown render_frame exception: " << endlog;
         DebugBreak();
     }
 }

@@ -37,3 +37,19 @@ inline void log()
     OutputDebugStringA(g_out.str().c_str());
     g_out.str("");
 }
+
+//--------------------------------------------------------------------------------------
+// Stream manipulator that ends a log line: appends a newline, writes the
+// accumulated text to the debugger (VS Output window), and clears the buffer.
+// Collapses the "g_out << ... << std::endl; log();" two-liner into a single
+// "g_out << ... << endlog;". Preserves g_out's formatting state, since it is
+// the same persistent stream. Valid only on g_out (an ostringstream).
+//--------------------------------------------------------------------------------------
+inline std::ostream& endlog(std::ostream& os)
+{
+    os << '\n';
+    auto& buffer = static_cast<std::ostringstream&>(os);
+    OutputDebugStringA(buffer.str().c_str());
+    buffer.str("");
+    return os;
+}
