@@ -34,9 +34,6 @@ ComPtr<IDXGISwapChain> g_refresh_swapchain;
 ComPtr<ID3D11Texture2D>        g_LR_tex;
 ComPtr<ID3D11RenderTargetView> g_LR_RTV;
 
-ID3D11Texture2D*        g_pDepthStencil     = nullptr;
-ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
-
 ID3D11VertexShader*   g_pVertexShader   = nullptr;
 ID3D11GeometryShader* g_pGeometryShader = nullptr;
 ID3D11PixelShader*    g_pPixelShader    = nullptr;
@@ -162,35 +159,6 @@ HRESULT init_dx11(HWND window)
         rtv_desc.Texture2DArray.FirstArraySlice = 0;
         HR(g_pd3dDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
     }
-
-    // Create depth stencil texture
-    D3D11_TEXTURE2D_DESC desc_stencil = {};
-    desc_stencil.Width                = g_ScreenWidth;
-    desc_stencil.Height               = g_ScreenHeight;
-    desc_stencil.MipLevels            = 1;
-    desc_stencil.ArraySize            = 1;
-    desc_stencil.Format               = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    desc_stencil.SampleDesc.Count     = 1;
-    desc_stencil.SampleDesc.Quality   = 0;
-    desc_stencil.Usage                = D3D11_USAGE_DEFAULT;
-    desc_stencil.BindFlags            = D3D11_BIND_DEPTH_STENCIL;
-    desc_stencil.CPUAccessFlags       = 0;
-    desc_stencil.MiscFlags            = 0;
-    hr                                = g_pd3dDevice->CreateTexture2D(&desc_stencil, nullptr, &g_pDepthStencil);
-    if (FAILED(hr))
-        return hr;
-
-    // Create the depth stencil view
-    //
-    // This is not strictly necessary for our 3D, but is almost always used.
-    D3D11_DEPTH_STENCIL_VIEW_DESC stencil_view_desc = {};
-    stencil_view_desc.Format                        = desc_stencil.Format;
-    stencil_view_desc.ViewDimension                 = D3D11_DSV_DIMENSION_TEXTURE2D;
-    stencil_view_desc.Texture2D.MipSlice            = 0;
-
-    hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &stencil_view_desc, &g_pDepthStencilView);
-    if (FAILED(hr))
-        return hr;
 
     // Default wide open viewport
     D3D11_VIEWPORT vp;
@@ -387,12 +355,6 @@ HRESULT init_dx11(HWND window)
 //--------------------------------------------------------------------------------------
 void draw_cube(bool rightEye, const shared_CB& eye_cb)
 {
-    // Clear the depth buffer to 1.0 (max depth), per eye: the depth buffer is a
-    // single shared slice, so it must be reset between the two eye draws.
-    g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
-    assert(g_LR_RTV);  // Must be allocated.
-
     // Set the RenderTargetView for both RTV slices.
     ID3D11RenderTargetView* rtv_array[] = { g_LR_RTV.Get() };
     g_pImmediateContext->OMSetRenderTargets(1, rtv_array, nullptr);
@@ -545,10 +507,6 @@ void cleanup_device()
         g_pGeometryShader->Release();
     if (g_pPixelShader)
         g_pPixelShader->Release();
-    if (g_pDepthStencil)
-        g_pDepthStencil->Release();
-    if (g_pDepthStencilView)
-        g_pDepthStencilView->Release();
 
     if (g_pSwapChain)
         g_pSwapChain->Release();
