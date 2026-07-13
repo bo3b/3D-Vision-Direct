@@ -134,7 +134,7 @@ HRESULT init_dx11(HWND window)
     desc.SampleDesc.Quality                 = 0;
     desc.Windowed                           = TRUE;  // Start windowed, then switch to fullscreen exclusive.
     desc.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-    desc.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
+    desc.SwapEffect                         = g_swap_effect;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext));
@@ -442,6 +442,8 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
+    Sleep(g_framerate);  // pretend GPU work
+
     //
     // Rotate cube around the origin
     //
@@ -502,9 +504,6 @@ void render_frame()
 
             draw_cube(true, cb);
         }
-
-        // Publish the pair to the presenter (keyed mutex + fence + Flush).
-        copy_to_handoff();
     }
     catch (const std::exception& e)
     {
@@ -516,6 +515,9 @@ void render_frame()
         g_out << "!!!  Unknown render_frame exception: " << endlog;
         DebugBreak();
     }
+
+    // Publish the pair to the presenter (keyed mutex + fence + Flush).
+    copy_to_handoff();
 }
 
 //--------------------------------------------------------------------------------------
@@ -557,6 +559,28 @@ void cleanup_device()
         g_pd3dDevice->Release();
 }
 
+// When we hit F4, we want to toggle between windowed and exclusive fullscreen.
+void fullscreen(bool windowed)
+{
+    // ResizeBuffers below requires that the swapchain's backbuffers have no
+    // outstanding references and that nothing referencing them is still queued
+    // on the context. copy_to_handoff already releases its backbuffer each
+    // frame; here we unbind any bound render target (so a stale RTV can't hold
+    // one) and flush pending GPU work before the resize.
+    g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
+    g_pImmediateContext->Flush();
+
+    HRESULT hr = g_pSwapChain->SetFullscreenState(!windowed, NULL);
+    if (FAILED(hr))
+    {
+        g_out << "SetFullscreenState failed: " << std::hex << hr << std::dec << endlog;
+        DebugBreak();
+    }
+
+    // Because we use a FLIP swap effect we need to Resize buffers too.
+    HR(g_pSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+}
+
 //--------------------------------------------------------------------------------------
 // Game side of the geo-11 handoff (CopyToHandoff port): publish the just-rendered
 // L/R pair into the next FIFO slot under its keyed mutex, with the readiness
@@ -565,14 +589,18 @@ void cleanup_device()
 //--------------------------------------------------------------------------------------
 void copy_to_handoff()
 {
-    ID3D11Resource* bb = NULL;
-    HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), (void**)&bb));
+    ComPtr<ID3D11Resource> bb;
+    HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(bb.GetAddressOf())));
 
     // Copy Left eye into output backbuffer.
-    g_pImmediateContext->CopySubresourceRegion(bb, 0, 0, 0, 0, g_LR_tex.Get(), 0, nullptr);
-    HR(g_pSwapChain->Present(0, 0));
+    g_pImmediateContext->CopySubresourceRegion(bb.Get(), 0, 0, 0, 0, g_LR_tex.Get(), 0, nullptr);
+    HR(g_pSwapChain->Present(1, 0));
 
     // Copy Right eye into output backbuffer. (second slice/subresource)
-    g_pImmediateContext->CopySubresourceRegion(bb, 0, 0, 0, 0, g_LR_tex.Get(), 1, nullptr);
-    HR(g_pSwapChain->Present(1, 0));
+    g_pImmediateContext->CopySubresourceRegion(bb.Get(), 0, 0, 0, 0, g_LR_tex.Get(), 1, nullptr);
+    HR(g_pSwapChain->Present(2, 0));
+
+    // bb releases here (ComPtr): the swapchain backbuffer must have no
+    // outstanding references, or ResizeBuffers in fullscreen() fails.
 }
+

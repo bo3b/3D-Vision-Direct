@@ -20,3 +20,4 @@ HRESULT init_dx11(HWND window);
 void    cleanup_device();
 void    render_frame();
 void    copy_to_handoff();
+void	fullscreen(bool set);

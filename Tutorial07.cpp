@@ -237,6 +237,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     MSG msg = {};
     while (WM_QUIT != msg.message)
     {
+        render_frame();  // both eyes
+
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&msg);
@@ -270,13 +272,11 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
                 {
                     g_windowed = !g_windowed;
                     g_out << "== F4: windowed now " << g_windowed << endlog;
+                
+                    fullscreen(g_windowed);
                 }
                 f4_was_down = f4_down;
             }
-        }
-        else
-        {
-            render_frame();  // both eyes
         }
     }
 
