@@ -50,7 +50,7 @@ PS_INPUT VS( VS_INPUT input )
 //--------------------------------------------------------------------------------------
 float4 PS( PS_INPUT input) : SV_Target
 {
-    return float4(0.5, 0.5, 0.5, 1);
+    return float4(0.75, 0.75, 0.75, 1); // Dark grey
 }
 
 

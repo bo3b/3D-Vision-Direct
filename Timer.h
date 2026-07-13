@@ -42,6 +42,21 @@ public:
         return out;
     }
 
+    void SleepMicroseconds(int64_t microseconds)
+    {
+        LARGE_INTEGER start, current;
+
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&start);
+
+        int64_t target_ticks = (microseconds * frequency.QuadPart) / 1000000;
+
+        do
+        {
+            QueryPerformanceCounter(&current);
+        } while (current.QuadPart - start.QuadPart < target_ticks);
+    }
+
 private:
     std::ostringstream g_out;
 

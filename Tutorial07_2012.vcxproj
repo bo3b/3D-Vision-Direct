@@ -31,6 +31,7 @@
     <ProjectGuid>{D29C6982-A589-4081-89B1-91E78D7C41E2}</ProjectGuid>
     <RootNamespace>Tutorial07</RootNamespace>
     <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -174,6 +175,7 @@
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_XM_NO_INTRINSICS_;WIN32;_DEBUG;DEBUG;PROFILE;_WINDOWS;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
@@ -250,6 +252,7 @@
       <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_XM_NO_INTRINSICS_;WIN32;NDEBUG;_WINDOWS;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
@@ -327,6 +330,7 @@
       <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_XM_NO_INTRINSICS_;WIN32;NDEBUG;PROFILE;_WINDOWS;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
@@ -405,9 +409,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ShutterGlasses.cpp" />
+    <ClCompile Include="StereoRender.cpp" />
     <ClCompile Include="Tutorial07.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Params.h" />
+    <ClInclude Include="Utils.h" />
     <ClInclude Include="nvapi.h" />
     <ClInclude Include="nvapi_lite_common.h" />
     <ClInclude Include="nvapi_lite_d3dext.h" />
@@ -418,6 +425,7 @@
     <ClInclude Include="nvapi_lite_surround.h" />
     <ClInclude Include="ShutterGlasses.h" />
     <CLInclude Include="resource.h" />
+    <ClInclude Include="StereoRender.h" />
     <ClInclude Include="Timer.h" />
     <ResourceCompile Include="Tutorial07.rc" />
   </ItemGroup>
