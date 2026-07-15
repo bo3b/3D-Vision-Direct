@@ -187,33 +187,41 @@
 //     F9  - content-readiness fence gate on/off (A/B the geo-11 fix candidate)
 //     F11 - presenter frame latency 1 <-> 2 (restarts presenter)
 //
+//  Bo3b: 7-14-26
+//    That last approach was not good.  Too much complexity and random soutions to
+//    different problems.  Basic architectures seemed fundamentally broken. Getting
+//    wobble in Witcher3 that did not seem worth debugging.  More to the point,
+//    I want to know the guts inside and out, so I need to write it.
+//    Basic approach here will be to test doing one Window, one SwapChain, with
+//    two Devices to feed it.  Render/game loop on one, output Present on other.
+//    Goal is simple in concept, hard to get in practice- synced up with USB emitter
+//    at every vblank, and no eye swaps, no flicker.
 //--------------------------------------------------------------------------------------
 
-#include <windows.h>
+#include "Globals.h"
 
 #include "Utils.h"
 #include "Timer.h"
-#include "Params.h"
 
 #include "StereoRender.h"
 #include "resource.h"
+
+#include <windows.h>
 
 //--------------------------------------------------------------------------------------
 // Forward declarations
 //--------------------------------------------------------------------------------------
 HRESULT          init_windows(HINSTANCE hInstance, int nCmdShow);
 LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
+void             handleEvents();
 
 //--------------------------------------------------------------------------------------
-// Global Variables
+// State Variables
 //--------------------------------------------------------------------------------------
-HINSTANCE g_hInst       = nullptr;
-HWND      g_hWnd        = nullptr;
-HWND      g_hidden_hWnd = nullptr;
-bool      g_windowed    = true;
+bool g_running  = true;
+bool g_windowed = true;  // Starts true, forced to fullscreen after
 
-Timer  g_Timer;
-double g_lastFrame = 0;
+Timer g_Timer;
 
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
@@ -223,6 +231,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
+
+    g_hInst = hInstance;
 
     if (FAILED(init_windows(hInstance, nCmdShow)))
         return 0;
@@ -234,56 +244,69 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     }
 
     // Main message and drawing loop
-    MSG msg = {};
-    while (WM_QUIT != msg.message)
+    while (g_running)
     {
+        handleEvents();
+
         render_frame();  // both eyes
-
-        if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-
-            // Handle Esc key to exit
-            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
-            {
-                PostQuitMessage(0);
-            }
-            // Swap eyes: inverts the glasses command relative to the presented
-            // image. Flipping both together would be self-cancelling (right lens
-            // still opens on the right image), so the one-time absolute L/R
-            // calibration has to break that agreement on the glasses side only.
-            //{
-            //    static bool f2_was_down = false;
-            //    bool        f2_down     = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
-            //    if (f2_down && !f2_was_down)
-            //        g_eye_swap ^= 1;
-            //    f2_was_down = f2_down;
-            //}
-
-            // Fullscreen toggle: the presenter swapchain owns the display state,
-            // so this restarts the presenter, which re-engages via the geo-11
-            // sequence (create windowed, SetFullscreenState(TRUE), revalidating
-            // ResizeBuffers).
-            {
-                static bool f4_was_down = false;
-                bool        f4_down     = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
-                if (f4_down && !f4_was_down)
-                {
-                    g_windowed = !g_windowed;
-                    g_out << "== F4: windowed now " << g_windowed << endlog;
-                
-                    fullscreen(g_windowed);
-                }
-                f4_was_down = f4_down;
-            }
-        }
     }
 
     // On escape for exit clean up and dispose objects.
     cleanup_device();
 
-    return (int)msg.wParam;
+    return WM_QUIT;
+}
+
+//--------------------------------------------------------------------------------------
+// Handle main loop events, including FKey hits.
+//--------------------------------------------------------------------------------------
+void handleEvents()
+{
+    MSG msg = {};
+
+    if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+
+        if (msg.message == WM_QUIT)
+            g_running = false;
+
+        // Handle Esc key to exit
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+        {
+            PostQuitMessage(0);
+        }
+
+        // Swap eyes: inverts the glasses command relative to the presented
+        // image. Flipping both together would be self-cancelling (right lens
+        // still opens on the right image), so the one-time absolute L/R
+        // calibration has to break that agreement on the glasses side only.
+        //{
+        //    static bool f2_was_down = false;
+        //    bool        f2_down     = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        //    if (f2_down && !f2_was_down)
+        //        g_eye_swap ^= 1;
+        //    f2_was_down = f2_down;
+        //}
+
+        // Fullscreen toggle: the presenter swapchain owns the display state,
+        // so this restarts the presenter, which re-engages via the geo-11
+        // sequence (create windowed, SetFullscreenState(TRUE), revalidating
+        // ResizeBuffers).
+        {
+            static bool f4_was_down = false;
+            bool        f4_down     = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+            if (f4_down && !f4_was_down)
+            {
+                g_windowed = !g_windowed;
+                g_out << "== F4: windowed now " << g_windowed << endlog;
+
+                fullscreen(g_windowed);
+            }
+            f4_was_down = f4_down;
+        }
+    }
 }
 
 //--------------------------------------------------------------------------------------
@@ -310,7 +333,10 @@ HRESULT init_windows(HINSTANCE hInstance, int nCmdShow)
 
     // Create window for the output mode.
     // For fullscreen it is required to have WS_POPUP.
-    g_hInst = hInstance;
+    //
+    // This is the primary 'Game' window. We will pretend that the game made it.
+    // It will be the target of the 'game' swapchain, and will be used to create the 'presenter' swapchain.
+
     RECT rc = { 0, 0, (LONG)g_ScreenWidth, (LONG)g_ScreenHeight };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
     g_hWnd = CreateWindow(L"TutorialWindowClass", L"Direct3D 11 Tutorial 7", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);

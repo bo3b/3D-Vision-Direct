@@ -16,6 +16,8 @@
   <ItemGroup>
     <ClCompile Include="Tutorial07.cpp" />
     <ClCompile Include="ShutterGlasses.cpp" />
+    <ClCompile Include="Display.cpp" />
+    <ClCompile Include="StereoRender.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CLInclude Include="resource.h">
@@ -50,6 +52,10 @@
     </ClInclude>
     <ClInclude Include="shutterGlasses.h" />
     <ClInclude Include="Timer.h" />
+    <ClInclude Include="Display.h" />
+    <ClInclude Include="Utils.h" />
+    <ClInclude Include="StereoRender.h" />
+    <ClInclude Include="Globals.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">

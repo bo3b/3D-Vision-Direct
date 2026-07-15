@@ -1,6 +1,6 @@
 #include "StereoRender.h"
 
-#include "Params.h"
+#include "Globals.h"
 #include "Utils.h"
 #include "DirectXMath.h"
 #include "DirectxColors.h"
@@ -29,17 +29,19 @@ using namespace DirectX;
 ID3D11Device*          g_pd3dDevice        = nullptr;
 ID3D11DeviceContext*   g_pImmediateContext = nullptr;
 IDXGISwapChain*        g_pSwapChain        = nullptr;
-ComPtr<IDXGISwapChain> g_refresh_swapchain;
 
 ComPtr<ID3D11Texture2D>        g_LR_tex;
 ComPtr<ID3D11RenderTargetView> g_LR_RTV;
+
+// Latest frame with both eyes in different layers.
+ComPtr<ID3D11Texture2D> g_Latest_LR;
 
 ID3D11VertexShader*   g_pVertexShader   = nullptr;
 ID3D11GeometryShader* g_pGeometryShader = nullptr;
 ID3D11PixelShader*    g_pPixelShader    = nullptr;
 ID3D11InputLayout*    g_pVertexLayout   = nullptr;
-ID3D11Buffer*       g_pVertexBuffer = nullptr;
-ID3D11Buffer*       g_pIndexBuffer  = nullptr;
+ID3D11Buffer*         g_pVertexBuffer   = nullptr;
+ID3D11Buffer*         g_pIndexBuffer    = nullptr;
 
 ID3D11Buffer* g_pSharedCB = nullptr;
 
@@ -108,6 +110,9 @@ HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR 
 
 //--------------------------------------------------------------------------------------
 // Create Direct3D device and swap chain
+// 
+//  This is 'Game' device and swapchain as a simulation of the game creating these.
+//  In geo-11 we will capture these by the proxy layer, but don't 'own' them.
 //--------------------------------------------------------------------------------------
 HRESULT init_dx11(HWND window)
 {
@@ -158,6 +163,9 @@ HRESULT init_dx11(HWND window)
         rtv_desc.Texture2DArray.ArraySize       = 2;
         rtv_desc.Texture2DArray.FirstArraySlice = 0;
         HR(g_pd3dDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
+
+        // Duplicate copy of output textures for staging.
+        HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_Latest_LR));
     }
 
     // Default wide open viewport
@@ -366,8 +374,8 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
     // because the load pass above may have overwritten b0. EyeIndex tells the
     // GS which g_LR_RTV slice this draw belongs to.
     //
-    shared_CB cb  = eye_cb;
-    cb.EyeIndex   = rightEye ? 1 : 0;
+    shared_CB cb = eye_cb;
+    cb.EyeIndex  = rightEye ? 1 : 0;
     g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
     g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
@@ -508,6 +516,8 @@ void cleanup_device()
     if (g_pPixelShader)
         g_pPixelShader->Release();
 
+    // ComPtrs don't need manual cleanup.
+
     if (g_pSwapChain)
         g_pSwapChain->Release();
     if (g_pImmediateContext)
@@ -549,15 +559,9 @@ void copy_to_handoff()
     ComPtr<ID3D11Resource> bb;
     HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(bb.GetAddressOf())));
 
-    // Copy Left eye into output backbuffer.
-    g_pImmediateContext->CopySubresourceRegion(bb.Get(), 0, 0, 0, 0, g_LR_tex.Get(), 0, nullptr);
-    HR(g_pSwapChain->Present(1, 0));
+    // Copy both eyes into storage for the Latest Frame from the Game.
+    // This copy is available for the monitor display to pick up.
+    g_pImmediateContext->CopyResource(g_Latest_LR.Get(), g_LR_tex.Get());
 
-    // Copy Right eye into output backbuffer. (second slice/subresource)
-    g_pImmediateContext->CopySubresourceRegion(bb.Get(), 0, 0, 0, 0, g_LR_tex.Get(), 1, nullptr);
     HR(g_pSwapChain->Present(2, 0));
-
-    // bb releases here (ComPtr): the swapchain backbuffer must have no
-    // outstanding references, or ResizeBuffers in fullscreen() fails.
 }
-
