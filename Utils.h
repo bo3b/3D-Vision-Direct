@@ -9,6 +9,12 @@
 
 inline std::ostringstream g_out;
 
+enum eye
+{
+    left  = 0,
+    right = 1
+};
+
 //--------------------------------------------------------------------------------------
 // Frank Luna style error checking for stuff that should never fail.
 //--------------------------------------------------------------------------------------

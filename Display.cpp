@@ -49,10 +49,8 @@ void Display::RefreshLoop()
 
     ComPtr<IDXGIOutput> refresh_output;
     HR(g_GameSwapChain->GetContainingOutput(&refresh_output));
-    ComPtr<ID3D11Texture2D> refresh_backbuffer_L;
-    ComPtr<ID3D11Texture2D> refresh_backbuffer_R;
-    HR(g_GameSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer_L.GetAddressOf())));
-    HR(g_GameSwapChain->GetBuffer(1, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer_R.GetAddressOf())));
+    ComPtr<ID3D11Texture2D> refresh_backbuffer;
+    HR(g_GameSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
     while (mRefreshing)
     {
@@ -66,11 +64,11 @@ void Display::RefreshLoop()
         {
             // At vBlank, we want to Present next frame.
             // Copy in the latest bits to backbuffer.
-            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer_L.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), 0, nullptr);
+            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), eye::left, nullptr);
             hr = g_GameSwapChain->Present(1, 0);
             if (FAILED(hr))
                 DebugBreak();
-            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer_R.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), 1, nullptr);
+            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), eye::right, nullptr);
             hr = g_GameSwapChain->Present(1, 0);
             if (FAILED(hr))
                 DebugBreak();
