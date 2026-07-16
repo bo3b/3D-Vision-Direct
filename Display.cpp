@@ -63,9 +63,6 @@ void Display::RefreshLoop()
         }
 
         HRESULT hr;
-        //hr = g_game_latest_mutex->AcquireSync(1, 0);  // Do not wait.
-        //if (SUCCEEDED(hr))
-        //if (TryEnterCriticalSection(&g_context_lock))
         {
             // At vBlank, we want to Present next frame.
             // Copy in the latest bits to backbuffer.
@@ -77,9 +74,6 @@ void Display::RefreshLoop()
             hr = g_GameSwapChain->Present(1, 0);
             if (FAILED(hr))
                 DebugBreak();
-
-            //HR(g_game_latest_mutex->ReleaseSync(0));
-            //LeaveCriticalSection(&g_context_lock);
         }
     }
 }

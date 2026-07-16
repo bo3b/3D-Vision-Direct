@@ -44,7 +44,4 @@ extern ComPtr<ID3D11RenderTargetView> g_LR_RTV;  // Requires special VS for slic
 
 // Most recent two layer frame finished by the game.
 // Stored for pickup by the monitor presenter.
-inline ComPtr<ID3D11Texture2D> g_game_latest_LR;     // ArraySize=2
-//inline ComPtr<IDXGIKeyedMutex> g_game_latest_mutex;  // Thread safety
-
-//inline CRITICAL_SECTION g_context_lock;
+inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2

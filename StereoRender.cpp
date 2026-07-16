@@ -9,6 +9,7 @@
 #include <dxgi.h>
 #include <dxgiformat.h>
 #include <d3d11_4.h>
+#include <d3d11sdklayers.h>
 #include <d3dcommon.h>
 #include <Windows.h>
 #include <wrl/client.h>
@@ -137,6 +138,16 @@ HRESULT init_dx11(HWND game_window)
     HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_GameSwapChain, &gameDevice, nullptr, &g_GameImmediateContext));
     g_out << "init_dx11 CreateDeviceAndSwapChain to render game_window. SwapChain: " << g_GameSwapChain << endlog;
 
+#ifdef _DEBUG
+    // Break into the debugger the moment the Debug Layer reports an error.
+    {
+        ComPtr<ID3D11InfoQueue> info_queue;
+        HR(gameDevice->QueryInterface(__uuidof(ID3D11InfoQueue), reinterpret_cast<void**>(info_queue.GetAddressOf())));
+        HR(info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE));
+        HR(info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE));
+    }
+#endif
+
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.
     // They need to be identical to the drawing backbuffer in size and color format.
     {
@@ -160,14 +171,7 @@ HRESULT init_dx11(HWND game_window)
         HR(gameDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
 
         // Duplicate copy of output textures for staging.
-        texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;  // Mutex for multithread access
         HR(gameDevice->CreateTexture2D(&texture_desc, nullptr, &g_game_latest_LR));
-
-        // Acquire a reference to the keyed mutex.
-        //g_game_latest_LR->QueryInterface(_uuidof(IDXGIKeyedMutex), &g_game_latest_mutex);
-
-        // 2. Initialize the lock (usually in your setup/startup code)
-        //InitializeCriticalSection(&g_context_lock);
 
         ComPtr<ID3D11Multithread> multi_thread;
         g_GameImmediateContext->QueryInterface(_uuidof(ID3D11Multithread), &multi_thread);
@@ -500,9 +504,6 @@ void render_frame()
 //--------------------------------------------------------------------------------------
 void cleanup_device()
 {
-    // 4. Clean up the lock when shutting down the application
-    //DeleteCriticalSection(&g_context_lock);
-
     if (g_GameSwapChain)
         g_GameSwapChain->SetFullscreenState(FALSE, nullptr);
 
@@ -569,21 +570,10 @@ void copy_to_handoff()
     // With SyncInterval=0, it will be discarded
     HR(g_GameSwapChain->Present(0, 0));
 
-    //ComPtr<ID3D11Resource> bb;
-    //HR(gameSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(bb.GetAddressOf())));
-
     // Copy both eyes into storage for the Latest Frame from the Game.
     // This copy is available for the monitor display to pick up.
 
-    // Acquire a lock to the resource.
-    //HR(g_game_latest_mutex->AcquireSync(0, INFINITE));  // OK to wait here
-    // Lock the critical section
-
-    // Release the lock when done
-    //EnterCriticalSection(&g_context_lock);
     {
         g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());  // both eyes
     }
-    //LeaveCriticalSection(&g_context_lock);
-    //HR(g_game_latest_mutex->ReleaseSync(1));
 }
