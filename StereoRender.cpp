@@ -539,6 +539,10 @@ void cleanup_device()
 // When we hit F4, we want to toggle between windowed and exclusive fullscreen.
 void fullscreen(bool windowed)
 {
+    // Stop the Output display loop, because we are reseting the output
+    // backbuffer. This waits for thread to exit.
+    g_Display->StopRefresh();
+
     // ResizeBuffers below requires that the swapchain's backbuffers have no
     // outstanding references and that nothing referencing them is still queued
     // on the context. copy_to_handoff already releases its backbuffer each
@@ -556,6 +560,9 @@ void fullscreen(bool windowed)
 
     // Because we use a FLIP swap effect we need to Resize buffers too.
     HR(g_GameSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+
+    // With resized buffers we can now resume output display.
+    g_Display->StartRefresh();
 }
 
 //--------------------------------------------------------------------------------------
