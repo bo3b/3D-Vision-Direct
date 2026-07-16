@@ -204,6 +204,8 @@
 #include "Timer.h"
 
 #include "StereoRender.h"
+#include "Display.h"
+
 #include "resource.h"
 
 #include <windows.h>
@@ -243,6 +245,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
         return 0;
     }
 
+    // Create the output display thread
+    g_Display = new Display();
+    g_Display->StartRefresh();
+
     // Main message and drawing loop
     while (g_running)
     {
@@ -250,6 +256,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
         render_frame();  // both eyes
     }
+    
+    g_Display->StopRefresh();
 
     // On escape for exit clean up and dispose objects.
     cleanup_device();

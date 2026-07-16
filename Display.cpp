@@ -1,6 +1,11 @@
 #include "Display.h"
 
-Display::Display(HWND window)
+#include "Globals.h"
+#include "Utils.h"
+
+#include <thread>
+
+Display::Display()
 {
 }
 
@@ -8,7 +13,77 @@ Display::~Display()
 {
 }
 
+//--------------------------------------------------------------------------------------
+// Output Refresh thread:
+//  Will alternate between the R/L eye buffers to create frame-sequential output.
 //
+//  The reason to have a separate thread and all this complexity is so that we can
+//  have a very strict output that matches the very strict monitor timing refresh.
+//--------------------------------------------------------------------------------------
+
+void Display::StartRefresh()
+{
+    g_out << " --> refresh_thread StartRefresh " << endlog;
+
+    // Allocate the thread that will run the dual present
+    mRefreshThread = new std::thread(&Display::RefreshLoop, this);
+
+    //SetThreadPriority(mRefreshThread, THREAD_PRIORITY_TIME_CRITICAL);
+}
+
+void Display::StopRefresh()
+{
+    g_out << " --> refresh_thread StopRefresh " << endlog;
+
+    mRefreshing = false;
+    mRefreshThread->join();
+}
+
+// The actual routine to execute as its own thread.
+
+void Display::RefreshLoop()
+{
+    g_out << " --> RefreshLoop Startup " << endlog;
+
+    mRefreshing = true;
+
+    ComPtr<IDXGIOutput> refresh_output;
+    HR(g_GameSwapChain->GetContainingOutput(&refresh_output));
+    ComPtr<ID3D11Texture2D> refresh_backbuffer_L;
+    ComPtr<ID3D11Texture2D> refresh_backbuffer_R;
+    HR(g_GameSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer_L.GetAddressOf())));
+    HR(g_GameSwapChain->GetBuffer(1, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer_R.GetAddressOf())));
+
+    while (mRefreshing)
+    {
+        if (FAILED(refresh_output->WaitForVBlank()))
+        {
+            DebugBreak();
+            continue;
+        }
+
+        HRESULT hr;
+        //hr = g_game_latest_mutex->AcquireSync(1, 0);  // Do not wait.
+        //if (SUCCEEDED(hr))
+        //if (TryEnterCriticalSection(&g_context_lock))
+        {
+            // At vBlank, we want to Present next frame.
+            // Copy in the latest bits to backbuffer.
+            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer_L.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), 0, nullptr);
+            hr = g_GameSwapChain->Present(1, 0);
+            if (FAILED(hr))
+                DebugBreak();
+            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer_R.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), 1, nullptr);
+            hr = g_GameSwapChain->Present(1, 0);
+            if (FAILED(hr))
+                DebugBreak();
+
+            //HR(g_game_latest_mutex->ReleaseSync(0));
+            //LeaveCriticalSection(&g_context_lock);
+        }
+    }
+}
+
 //// Vblank clock: maps a QPC time to an absolute refresh count. Published by the
 //// presenter from GetFrameStatistics, consumed by the emitter metronome thread
 //// to identify each vblank's parity. Extrapolates across occlusion, since the
@@ -99,7 +174,7 @@ Display::~Display()
 //    // WINDOWED - exclusive fullscreen is engaged afterward with a
 //    // revalidating ResizeBuffers, matching geo-11's engage sequence exactly.
 //    DXGI_SWAP_CHAIN_DESC desc = {};
-//    g_pSwapChain->GetDesc(&desc);
+//    gameSwapChain->GetDesc(&desc);
 //    desc.BufferCount  = 3;
 //    desc.SwapEffect   = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 //    desc.OutputWindow = g_hWnd;

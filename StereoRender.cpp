@@ -8,7 +8,7 @@
 #include <d3dcompiler.h>
 #include <dxgi.h>
 #include <dxgiformat.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <d3dcommon.h>
 #include <Windows.h>
 #include <wrl/client.h>
@@ -26,15 +26,10 @@ using namespace DirectX;
 // This is sort of 'the game' that would be injected. Drawing environment
 // based on DX11 that we can't directly modify, but can tweak params.
 
-ID3D11Device*          g_pd3dDevice        = nullptr;
-ID3D11DeviceContext*   g_pImmediateContext = nullptr;
-IDXGISwapChain*        g_pSwapChain        = nullptr;
+ID3D11Device* gameDevice = nullptr;
 
 ComPtr<ID3D11Texture2D>        g_LR_tex;
 ComPtr<ID3D11RenderTargetView> g_LR_RTV;
-
-// Latest frame with both eyes in different layers.
-ComPtr<ID3D11Texture2D> g_Latest_LR;
 
 ID3D11VertexShader*   g_pVertexShader   = nullptr;
 ID3D11GeometryShader* g_pGeometryShader = nullptr;
@@ -110,11 +105,11 @@ HRESULT compile_shader_from_file(WCHAR* szFileName, LPCSTR szEntryPoint, LPCSTR 
 
 //--------------------------------------------------------------------------------------
 // Create Direct3D device and swap chain
-// 
+//
 //  This is 'Game' device and swapchain as a simulation of the game creating these.
 //  In geo-11 we will capture these by the proxy layer, but don't 'own' them.
 //--------------------------------------------------------------------------------------
-HRESULT init_dx11(HWND window)
+HRESULT init_dx11(HWND game_window)
 {
     HRESULT hr;
 
@@ -131,7 +126,7 @@ HRESULT init_dx11(HWND window)
     desc.BufferDesc.RefreshRate.Numerator   = 120;  // Needs to be 120Hz for 3D Vision emitter
     desc.BufferDesc.RefreshRate.Denominator = 1;
     desc.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.OutputWindow                       = window;  // 'Game' window
+    desc.OutputWindow                       = game_window;
     desc.SampleDesc.Count                   = 1;
     desc.SampleDesc.Quality                 = 0;
     desc.Windowed                           = TRUE;  // Start windowed, then switch to fullscreen exclusive.
@@ -139,20 +134,20 @@ HRESULT init_dx11(HWND window)
     desc.SwapEffect                         = g_swap_effect;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_pSwapChain, &g_pd3dDevice, nullptr, &g_pImmediateContext));
-    g_out << "init_dx11 CreateDeviceAndSwapChain for hidden render window. SwapChain: " << g_pSwapChain << endlog;
+    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_GameSwapChain, &gameDevice, nullptr, &g_GameImmediateContext));
+    g_out << "init_dx11 CreateDeviceAndSwapChain to render game_window. SwapChain: " << g_GameSwapChain << endlog;
 
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.
     // They need to be identical to the drawing backbuffer in size and color format.
     {
         ComPtr<ID3D11Texture2D> drawing_backbuffer;
-        HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(drawing_backbuffer.GetAddressOf())));
+        HR(g_GameSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(drawing_backbuffer.GetAddressOf())));
 
         D3D11_TEXTURE2D_DESC texture_desc;
         drawing_backbuffer->GetDesc(&texture_desc);  // Match backbuffer specs
         texture_desc.ArraySize = 2;                  // Left and Right eye
 
-        HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_LR_tex));
+        HR(gameDevice->CreateTexture2D(&texture_desc, nullptr, &g_LR_tex));
 
         // RenderTargetViews are expensive to make, so we need to make them in advance.
         // This will be two slice array, used in VS.
@@ -162,10 +157,21 @@ HRESULT init_dx11(HWND window)
         rtv_desc.Texture2DArray.MipSlice        = 0;
         rtv_desc.Texture2DArray.ArraySize       = 2;
         rtv_desc.Texture2DArray.FirstArraySlice = 0;
-        HR(g_pd3dDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
+        HR(gameDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
 
         // Duplicate copy of output textures for staging.
-        HR(g_pd3dDevice->CreateTexture2D(&texture_desc, nullptr, &g_Latest_LR));
+        texture_desc.MiscFlags |= D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;  // Mutex for multithread access
+        HR(gameDevice->CreateTexture2D(&texture_desc, nullptr, &g_game_latest_LR));
+
+        // Acquire a reference to the keyed mutex.
+        //g_game_latest_LR->QueryInterface(_uuidof(IDXGIKeyedMutex), &g_game_latest_mutex);
+
+        // 2. Initialize the lock (usually in your setup/startup code)
+        //InitializeCriticalSection(&g_context_lock);
+
+        ComPtr<ID3D11Multithread> multi_thread;
+        g_GameImmediateContext->QueryInterface(_uuidof(ID3D11Multithread), &multi_thread);
+        multi_thread->SetMultithreadProtected(true);
     }
 
     // Default wide open viewport
@@ -176,7 +182,7 @@ HRESULT init_dx11(HWND window)
     vp.MaxDepth = 1.0f;
     vp.TopLeftX = 0;
     vp.TopLeftY = 0;
-    g_pImmediateContext->RSSetViewports(1, &vp);
+    g_GameImmediateContext->RSSetViewports(1, &vp);
 
     // Compile the vertex shader
     ID3DBlob* vs_blob = nullptr;
@@ -188,7 +194,7 @@ HRESULT init_dx11(HWND window)
     }
 
     // Create the vertex shader
-    hr = g_pd3dDevice->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_pVertexShader);
+    hr = gameDevice->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_pVertexShader);
     if (FAILED(hr))
     {
         vs_blob->Release();
@@ -203,7 +209,7 @@ HRESULT init_dx11(HWND window)
     UINT num_elements = ARRAYSIZE(layout);
 
     // Create the input layout
-    hr = g_pd3dDevice->CreateInputLayout(layout, num_elements, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_pVertexLayout);
+    hr = gameDevice->CreateInputLayout(layout, num_elements, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_pVertexLayout);
     vs_blob->Release();
     if (FAILED(hr))
         return hr;
@@ -218,7 +224,7 @@ HRESULT init_dx11(HWND window)
     }
 
     // Create the pixel shader
-    hr = g_pd3dDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_pPixelShader);
+    hr = gameDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_pPixelShader);
     ps_blob->Release();
     if (FAILED(hr))
         return hr;
@@ -234,13 +240,13 @@ HRESULT init_dx11(HWND window)
         return hr;
     }
 
-    hr = g_pd3dDevice->CreateGeometryShader(gs_blob->GetBufferPointer(), gs_blob->GetBufferSize(), nullptr, &g_pGeometryShader);
+    hr = gameDevice->CreateGeometryShader(gs_blob->GetBufferPointer(), gs_blob->GetBufferSize(), nullptr, &g_pGeometryShader);
     gs_blob->Release();
     if (FAILED(hr))
         return hr;
 
     // Set the input layout
-    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+    g_GameImmediateContext->IASetInputLayout(g_pVertexLayout);
 
     // Create vertex buffer for the cube
     simple_vertex vertices[] = {
@@ -284,14 +290,14 @@ HRESULT init_dx11(HWND window)
     D3D11_SUBRESOURCE_DATA init_data = {};
     init_data.pSysMem                = vertices;
 
-    hr = g_pd3dDevice->CreateBuffer(&bd, &init_data, &g_pVertexBuffer);
+    hr = gameDevice->CreateBuffer(&bd, &init_data, &g_pVertexBuffer);
     if (FAILED(hr))
         return hr;
 
     // Set vertex buffer
     UINT stride = sizeof(simple_vertex);
     UINT offset = 0;
-    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+    g_GameImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
 
     // Create index buffer
     // Create vertex buffer
@@ -320,22 +326,22 @@ HRESULT init_dx11(HWND window)
     bd.BindFlags      = D3D11_BIND_INDEX_BUFFER;
     bd.CPUAccessFlags = 0;
     init_data.pSysMem = indices;
-    hr                = g_pd3dDevice->CreateBuffer(&bd, &init_data, &g_pIndexBuffer);
+    hr                = gameDevice->CreateBuffer(&bd, &init_data, &g_pIndexBuffer);
     if (FAILED(hr))
         return hr;
 
     // Set index buffer
-    g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+    g_GameImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
 
     // Set primitive topology
-    g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g_GameImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Create the constant buffer
     bd.Usage          = D3D11_USAGE_DEFAULT;
     bd.ByteWidth      = sizeof(shared_CB);
     bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     bd.CPUAccessFlags = 0;
-    hr                = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
+    hr                = gameDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
     if (FAILED(hr))
         return hr;
 
@@ -365,7 +371,7 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 {
     // Set the RenderTargetView for both RTV slices.
     ID3D11RenderTargetView* rtv_array[] = { g_LR_RTV.Get() };
-    g_pImmediateContext->OMSetRenderTargets(1, rtv_array, nullptr);
+    g_GameImmediateContext->OMSetRenderTargets(1, rtv_array, nullptr);
 
     //
     // Render the cube
@@ -376,13 +382,13 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
     //
     shared_CB cb = eye_cb;
     cb.EyeIndex  = rightEye ? 1 : 0;
-    g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
-    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
-    g_pImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
-    g_pImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
-    g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-    g_pImmediateContext->DrawIndexed(36, 0, 0);
+    g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+    g_GameImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+    g_GameImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
+    g_GameImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
+    g_GameImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
+    g_GameImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+    g_GameImmediateContext->DrawIndexed(36, 0, 0);
 
     // Judder test bar (F7 toggles): the cube geometry squeezed into a thin
     // vertical bar, sweeping the width at constant speed. Drawn identically in
@@ -396,13 +402,13 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
         bar_cb.mView       = XMMatrixTranspose(g_View);
         bar_cb.mProjection = XMMatrixTranspose(g_Projection);
         bar_cb.EyeIndex    = cb.EyeIndex;
-        g_pImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &bar_cb, 0, 0);
-        g_pImmediateContext->DrawIndexed(36, 0, 0);
+        g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &bar_cb, 0, 0);
+        g_GameImmediateContext->DrawIndexed(36, 0, 0);
     }
 }
 
 //--------------------------------------------------------------------------------------
-// Render a frame, both eyes. But do not Present.
+// Main loop calls to render_frame.  Like Present from a game.
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
@@ -438,7 +444,7 @@ void render_frame()
         // Clear both eye slices once, up front. g_LR_RTV covers both slices, so
         // a single clear resets the whole pair; clearing per eye inside
         // draw_cube would erase the slice the previous eye just drew.
-        g_pImmediateContext->ClearRenderTargetView(g_LR_RTV.Get(), Colors::OliveDrab);
+        g_GameImmediateContext->ClearRenderTargetView(g_LR_RTV.Get(), Colors::OliveDrab);
 
         // <----------------------- Left Eye -------------------------------
         //
@@ -485,7 +491,7 @@ void render_frame()
         DebugBreak();
     }
 
-    // Publish the pair to the presenter (keyed mutex + fence + Flush).
+    // Publish the pair to the presenter.
     copy_to_handoff();
 }
 
@@ -494,11 +500,14 @@ void render_frame()
 //--------------------------------------------------------------------------------------
 void cleanup_device()
 {
-    if (g_pSwapChain)
-        g_pSwapChain->SetFullscreenState(FALSE, nullptr);
+    // 4. Clean up the lock when shutting down the application
+    //DeleteCriticalSection(&g_context_lock);
 
-    if (g_pImmediateContext)
-        g_pImmediateContext->ClearState();
+    if (g_GameSwapChain)
+        g_GameSwapChain->SetFullscreenState(FALSE, nullptr);
+
+    if (g_GameImmediateContext)
+        g_GameImmediateContext->ClearState();
 
     if (g_pSharedCB)
         g_pSharedCB->Release();
@@ -518,12 +527,12 @@ void cleanup_device()
 
     // ComPtrs don't need manual cleanup.
 
-    if (g_pSwapChain)
-        g_pSwapChain->Release();
-    if (g_pImmediateContext)
-        g_pImmediateContext->Release();
-    if (g_pd3dDevice)
-        g_pd3dDevice->Release();
+    if (g_GameSwapChain)
+        g_GameSwapChain->Release();
+    if (g_GameImmediateContext)
+        g_GameImmediateContext->Release();
+    if (gameDevice)
+        gameDevice->Release();
 }
 
 // When we hit F4, we want to toggle between windowed and exclusive fullscreen.
@@ -534,10 +543,10 @@ void fullscreen(bool windowed)
     // on the context. copy_to_handoff already releases its backbuffer each
     // frame; here we unbind any bound render target (so a stale RTV can't hold
     // one) and flush pending GPU work before the resize.
-    g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
-    g_pImmediateContext->Flush();
+    g_GameImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
+    g_GameImmediateContext->Flush();
 
-    HRESULT hr = g_pSwapChain->SetFullscreenState(!windowed, NULL);
+    HRESULT hr = g_GameSwapChain->SetFullscreenState(!windowed, NULL);
     if (FAILED(hr))
     {
         g_out << "SetFullscreenState failed: " << std::hex << hr << std::dec << endlog;
@@ -545,7 +554,7 @@ void fullscreen(bool windowed)
     }
 
     // Because we use a FLIP swap effect we need to Resize buffers too.
-    HR(g_pSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+    HR(g_GameSwapChain->ResizeBuffers(g_bufferCount, g_ScreenWidth, g_ScreenHeight, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 }
 
 //--------------------------------------------------------------------------------------
@@ -556,12 +565,25 @@ void fullscreen(bool windowed)
 //--------------------------------------------------------------------------------------
 void copy_to_handoff()
 {
-    ComPtr<ID3D11Resource> bb;
-    HR(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(bb.GetAddressOf())));
+    // Call through to game's hooked Present to keep hooks happy.
+    // With SyncInterval=0, it will be discarded
+    HR(g_GameSwapChain->Present(0, 0));
+
+    //ComPtr<ID3D11Resource> bb;
+    //HR(gameSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(bb.GetAddressOf())));
 
     // Copy both eyes into storage for the Latest Frame from the Game.
     // This copy is available for the monitor display to pick up.
-    g_pImmediateContext->CopyResource(g_Latest_LR.Get(), g_LR_tex.Get());
 
-    HR(g_pSwapChain->Present(2, 0));
+    // Acquire a lock to the resource.
+    //HR(g_game_latest_mutex->AcquireSync(0, INFINITE));  // OK to wait here
+    // Lock the critical section
+
+    // Release the lock when done
+    //EnterCriticalSection(&g_context_lock);
+    {
+        g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());  // both eyes
+    }
+    //LeaveCriticalSection(&g_context_lock);
+    //HR(g_game_latest_mutex->ReleaseSync(1));
 }
