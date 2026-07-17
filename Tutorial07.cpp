@@ -223,8 +223,6 @@ void             handleEvents();
 bool g_running  = true;
 bool g_windowed = true;  // Starts true, forced to fullscreen after
 
-Timer g_Timer;
-
 //--------------------------------------------------------------------------------------
 // Entry point to the program. Initializes everything and goes into a message processing
 // loop. Idle time is used to render the scene.

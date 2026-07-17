@@ -41,6 +41,8 @@ void Display::StopRefresh()
 
 // The actual routine to execute as its own thread.
 
+static double last_frame_time = 0;
+
 void Display::RefreshLoop()
 {
     g_out << " --> RefreshLoop Startup " << endlog;
@@ -59,6 +61,12 @@ void Display::RefreshLoop()
             DebugBreak();
             continue;
         }
+
+        double current_frame_time = g_Timer.GetElapsedMicroseconds();
+        double elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
+        bool   stall              = (elapsed_ms > 16.9f);
+        g_out << "  vblank frame time:     " << elapsed_ms << " ms" << (stall ? "-- stall" : "") << endlog;
+        last_frame_time = current_frame_time;
 
         HRESULT hr;
         {

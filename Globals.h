@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Display.h"
+#include "Timer.h"
 
 #include <Windows.h>
 #include <wrl/client.h>
@@ -12,7 +13,7 @@ using Microsoft::WRL::ComPtr;
 // Testing parameters
 //--------------------------------------------------------------------------------------
 
-inline UINT g_bufferCount = 4;  // Quad buffered stereo- Front/Back, next up Front/Back
+inline UINT g_bufferCount = 2;  // Quad buffered stereo- Front/Back, next up Front/Back
 
 inline UINT g_ScreenWidth  = 2560;  // Starting window size
 inline UINT g_ScreenHeight = 1440;
@@ -21,7 +22,8 @@ inline bool g_judder_bar = true;  // F7 toggles a test bar to show judder on rep
 
 inline DXGI_SWAP_EFFECT g_swap_effect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
-inline UINT g_framerate = 1000 / (20);  // 50Hz for testing judder, etc. (in ms)
+inline UINT frame_rate  = 20;
+inline UINT g_SleepTime = 1000 / (frame_rate);  // 50Hz for testing judder, etc. (in ms)
 
 //--------------------------------------------------------------------------------------
 // App/Game globals
@@ -30,6 +32,8 @@ inline HINSTANCE g_hInst = nullptr;  // 'game' instance
 inline HWND      g_hWnd  = nullptr;  // Main window created by the 'game'
 
 inline Display* g_Display = nullptr;  // output display
+
+inline Timer g_Timer;  // microsecond accuracy
 
 //--------------------------------------------------------------------------------------
 // StereoRender globals

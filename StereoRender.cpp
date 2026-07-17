@@ -416,7 +416,7 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
-    Sleep(g_framerate);  // pretend GPU work
+    Sleep(g_SleepTime);  // pretend GPU work
 
     //
     // Rotate cube around the origin
@@ -574,8 +574,7 @@ void fullscreen(bool windowed)
 void copy_to_handoff()
 {
     // Call through to game's hooked Present to keep hooks happy.
-    // With SyncInterval=0, it will be discarded
-    HR(g_GameSwapChain->Present(0, 0));
+    HR(g_GameSwapChain->Present(0, DXGI_PRESENT_TEST));
 
     // Copy both eyes into storage for the Latest Frame from the Game.
     // This copy is available for the monitor display to pick up.
