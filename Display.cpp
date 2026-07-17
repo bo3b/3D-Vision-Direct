@@ -5,6 +5,8 @@
 
 #include <thread>
 
+void LogStalls();
+
 Display::Display()
 {
 }
@@ -31,11 +33,17 @@ void Display::StartRefresh()
 
     g_out << "Shutter glasses woken and started, " << endlog;
 
+    IDXGIDevice1* dxgi_device = nullptr;
+    HR(g_GameDevice->QueryInterface(__uuidof(IDXGIDevice1), (void**)&dxgi_device));
+    {
+        HR(dxgi_device->SetMaximumFrameLatency(g_FrameLatency));
+    }
+    dxgi_device->Release();
+
     // Allocate the thread that will run the dual present
     mRefreshThread = new std::thread(&Display::RefreshLoop, this);
 
     //SetThreadPriority(mRefreshThread, THREAD_PRIORITY_TIME_CRITICAL);
-
 }
 
 void Display::StopRefresh()
@@ -46,52 +54,68 @@ void Display::StopRefresh()
     mRefreshThread->join();
 }
 
+//--------------------------------------------------------------------------------------
 // The actual routine to execute as its own thread.
-
-static double last_frame_time = 0;
+//
+//  Some deep investigation into the different available Present types and buffer counts
+//  showed that using Present(1,0) is pretty much the only real option.  Present(0,0) will
+//  immediately show the buffer, and in Exclusive mode it will show screen tearing because
+//  it comes it at some time after the GPU is available. 
+//  
+//  Probably our best combination is g_bufferCount=3, with SetMaximumFrameLatency(2)
+//  so that we have the one being shown in frontbuffer, and the two pending in the queue.
+//  This can be longer to handle larger stalls, but in general should not be necessary to
+//  go beyond 2 in the queue. Anything bigger than that is a loading stall in hundreds of ms.
+// 
+//  This is also why there is not point in doing both eyes in the main loop.  It will 
+//  always stop down to whatever the last one that was queued, either half done or not.
+//
+//  This cannot work in a game as currently written- the single device for output means that
+//  a slow rendering game might queue up 50ms of GPU work that we can't interrupt in any way.
+//  If that happens, we cannot add to the queue, and we get an eye-swap.
 
 void Display::RefreshLoop()
 {
+    HRESULT hr;
+
     g_out << " --> RefreshLoop Startup " << endlog;
 
     mRefreshing = true;
 
-    ComPtr<IDXGIOutput> refresh_output;
-    HR(g_GameSwapChain->GetContainingOutput(&refresh_output));
+    // Fetch backbuffer for long term reference.
     ComPtr<ID3D11Texture2D> refresh_backbuffer;
     HR(g_GameSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(refresh_backbuffer.GetAddressOf())));
 
     while (mRefreshing)
     {
-        if (FAILED(refresh_output->WaitForVBlank()))
-        {
-            DebugBreak();
-            continue;
-        }
+        // As soon as we unblock, presumably vblank, hit emitter
+        g_shutterGlasses.ToggleEyes();
 
-        double current_frame_time = g_Timer.GetElapsedMicroseconds();
-        double elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
-        bool   stall              = (elapsed_ms > 16.9f);
-        g_out << "  vblank frame time:     " << elapsed_ms << " ms" << (stall ? "-- stall" : "") << endlog;
-        last_frame_time = current_frame_time;
+        // Copy whichever is up next
+        g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), g_shutterGlasses.IsLeftEye(), nullptr);
 
-        HRESULT hr;
-        {
-            // At vBlank, we want to Present next frame.
-            // Copy in the latest bits to backbuffer.
-            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), eye::left, nullptr);
-            hr = g_GameSwapChain->Present(1, 0);
-            if (FAILED(hr))
-                DebugBreak();
-            g_shutterGlasses.SetLeftEye();
+        // Present(1,) so that when the queue is full we block until it's free.
+        HR(g_GameSwapChain->Present(1, 0));
 
-            g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), eye::right, nullptr);
-            hr = g_GameSwapChain->Present(1, 0);
-            if (FAILED(hr))
-                DebugBreak();
-            g_shutterGlasses.SetRightEye();
-        }
+        LogStalls();
     }
+}
+//--------------------------------------------------------------------------------------
+
+static double last_frame_time = 0;
+
+void LogStalls()
+{
+    double current_frame_time = g_Timer.GetElapsedMicroseconds();
+    {
+        double elapsed_ms = (current_frame_time - last_frame_time) / 1000.0f;
+        bool   stall_1    = (elapsed_ms > 8.6f);
+        bool   stall_2    = (elapsed_ms > 16.9f);
+
+        if (stall_1)    
+            g_out << "  frame refresh stall:  " << elapsed_ms << " ms" << (stall_2 ? "-- stall" : "") << endlog;
+    }
+    last_frame_time = current_frame_time;
 }
 
 //// Vblank clock: maps a QPC time to an absolute refresh count. Published by the

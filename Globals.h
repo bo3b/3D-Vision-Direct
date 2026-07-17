@@ -6,7 +6,7 @@
 
 #include <Windows.h>
 #include <wrl/client.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -14,7 +14,7 @@ using Microsoft::WRL::ComPtr;
 // Testing parameters
 //--------------------------------------------------------------------------------------
 
-inline UINT g_bufferCount = 2;  // Quad buffered stereo- Front/Back, next up Front/Back
+inline UINT g_bufferCount = 3;  // Quad buffered stereo- Front/Back, next up Front/Back
 
 inline UINT g_ScreenWidth  = 2560;  // Starting window size
 inline UINT g_ScreenHeight = 1440;
@@ -40,6 +40,7 @@ inline Timer g_Timer;  // microsecond accuracy
 // StereoRender globals
 //--------------------------------------------------------------------------------------
 inline IDXGISwapChain*      g_GameSwapChain        = nullptr;
+inline ID3D11Device*        g_GameDevice           = nullptr;
 inline ID3D11DeviceContext* g_GameImmediateContext = nullptr;
 
 // Per-eye render targets on the game device (not shared - the handoff below is
@@ -55,3 +56,4 @@ inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2
 // Display output globals
 //--------------------------------------------------------------------------------------
 inline NvidiaShutterGlasses g_shutterGlasses;
+inline UINT                 g_FrameLatency = 2;

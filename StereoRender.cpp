@@ -27,8 +27,6 @@ using namespace DirectX;
 // This is sort of 'the game' that would be injected. Drawing environment
 // based on DX11 that we can't directly modify, but can tweak params.
 
-ID3D11Device* gameDevice = nullptr;
-
 ComPtr<ID3D11Texture2D>        g_LR_tex;
 ComPtr<ID3D11RenderTargetView> g_LR_RTV;
 
@@ -135,14 +133,14 @@ HRESULT init_dx11(HWND game_window)
     desc.SwapEffect                         = g_swap_effect;  // Allows windowed 3D.
 
     // Create the simple DX11, Device, SwapChain, and Context.
-    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_GameSwapChain, &gameDevice, nullptr, &g_GameImmediateContext));
+    HR(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_device_flags, nullptr, 0, D3D11_SDK_VERSION, &desc, &g_GameSwapChain, &g_GameDevice, nullptr, &g_GameImmediateContext));
     g_out << "init_dx11 CreateDeviceAndSwapChain to render game_window. SwapChain: " << g_GameSwapChain << endlog;
 
 #ifdef _DEBUG
     // Break into the debugger the moment the Debug Layer reports an error.
     {
         ComPtr<ID3D11InfoQueue> info_queue;
-        HR(gameDevice->QueryInterface(__uuidof(ID3D11InfoQueue), reinterpret_cast<void**>(info_queue.GetAddressOf())));
+        HR(g_GameDevice->QueryInterface(__uuidof(ID3D11InfoQueue), reinterpret_cast<void**>(info_queue.GetAddressOf())));
         HR(info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE));
         HR(info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE));
     }
@@ -158,7 +156,7 @@ HRESULT init_dx11(HWND game_window)
         drawing_backbuffer->GetDesc(&texture_desc);  // Match backbuffer specs
         texture_desc.ArraySize = 2;                  // Left and Right eye
 
-        HR(gameDevice->CreateTexture2D(&texture_desc, nullptr, &g_LR_tex));
+        HR(g_GameDevice->CreateTexture2D(&texture_desc, nullptr, &g_LR_tex));
 
         // RenderTargetViews are expensive to make, so we need to make them in advance.
         // This will be two slice array, used in VS.
@@ -168,10 +166,10 @@ HRESULT init_dx11(HWND game_window)
         rtv_desc.Texture2DArray.MipSlice        = 0;
         rtv_desc.Texture2DArray.ArraySize       = 2;
         rtv_desc.Texture2DArray.FirstArraySlice = 0;
-        HR(gameDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
+        HR(g_GameDevice->CreateRenderTargetView(g_LR_tex.Get(), &rtv_desc, &g_LR_RTV));
 
         // Duplicate copy of output textures for staging.
-        HR(gameDevice->CreateTexture2D(&texture_desc, nullptr, &g_game_latest_LR));
+        HR(g_GameDevice->CreateTexture2D(&texture_desc, nullptr, &g_game_latest_LR));
 
         ComPtr<ID3D11Multithread> multi_thread;
         g_GameImmediateContext->QueryInterface(_uuidof(ID3D11Multithread), &multi_thread);
@@ -198,7 +196,7 @@ HRESULT init_dx11(HWND game_window)
     }
 
     // Create the vertex shader
-    hr = gameDevice->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_pVertexShader);
+    hr = g_GameDevice->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_pVertexShader);
     if (FAILED(hr))
     {
         vs_blob->Release();
@@ -213,7 +211,7 @@ HRESULT init_dx11(HWND game_window)
     UINT num_elements = ARRAYSIZE(layout);
 
     // Create the input layout
-    hr = gameDevice->CreateInputLayout(layout, num_elements, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_pVertexLayout);
+    hr = g_GameDevice->CreateInputLayout(layout, num_elements, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &g_pVertexLayout);
     vs_blob->Release();
     if (FAILED(hr))
         return hr;
@@ -228,7 +226,7 @@ HRESULT init_dx11(HWND game_window)
     }
 
     // Create the pixel shader
-    hr = gameDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_pPixelShader);
+    hr = g_GameDevice->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, &g_pPixelShader);
     ps_blob->Release();
     if (FAILED(hr))
         return hr;
@@ -244,7 +242,7 @@ HRESULT init_dx11(HWND game_window)
         return hr;
     }
 
-    hr = gameDevice->CreateGeometryShader(gs_blob->GetBufferPointer(), gs_blob->GetBufferSize(), nullptr, &g_pGeometryShader);
+    hr = g_GameDevice->CreateGeometryShader(gs_blob->GetBufferPointer(), gs_blob->GetBufferSize(), nullptr, &g_pGeometryShader);
     gs_blob->Release();
     if (FAILED(hr))
         return hr;
@@ -294,7 +292,7 @@ HRESULT init_dx11(HWND game_window)
     D3D11_SUBRESOURCE_DATA init_data = {};
     init_data.pSysMem                = vertices;
 
-    hr = gameDevice->CreateBuffer(&bd, &init_data, &g_pVertexBuffer);
+    hr = g_GameDevice->CreateBuffer(&bd, &init_data, &g_pVertexBuffer);
     if (FAILED(hr))
         return hr;
 
@@ -330,7 +328,7 @@ HRESULT init_dx11(HWND game_window)
     bd.BindFlags      = D3D11_BIND_INDEX_BUFFER;
     bd.CPUAccessFlags = 0;
     init_data.pSysMem = indices;
-    hr                = gameDevice->CreateBuffer(&bd, &init_data, &g_pIndexBuffer);
+    hr                = g_GameDevice->CreateBuffer(&bd, &init_data, &g_pIndexBuffer);
     if (FAILED(hr))
         return hr;
 
@@ -345,7 +343,7 @@ HRESULT init_dx11(HWND game_window)
     bd.ByteWidth      = sizeof(shared_CB);
     bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     bd.CPUAccessFlags = 0;
-    hr                = gameDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
+    hr                = g_GameDevice->CreateBuffer(&bd, nullptr, &g_pSharedCB);
     if (FAILED(hr))
         return hr;
 
@@ -532,8 +530,8 @@ void cleanup_device()
         g_GameSwapChain->Release();
     if (g_GameImmediateContext)
         g_GameImmediateContext->Release();
-    if (gameDevice)
-        gameDevice->Release();
+    if (g_GameDevice)
+        g_GameDevice->Release();
 }
 
 // When we hit F4, we want to toggle between windowed and exclusive fullscreen.
