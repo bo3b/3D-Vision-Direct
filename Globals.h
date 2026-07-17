@@ -2,6 +2,7 @@
 
 #include "Display.h"
 #include "Timer.h"
+#include "ShutterGlasses.h"
 
 #include <Windows.h>
 #include <wrl/client.h>
@@ -49,3 +50,8 @@ extern ComPtr<ID3D11RenderTargetView> g_LR_RTV;  // Requires special VS for slic
 // Most recent two layer frame finished by the game.
 // Stored for pickup by the monitor presenter.
 inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2
+
+//--------------------------------------------------------------------------------------
+// Display output globals
+//--------------------------------------------------------------------------------------
+inline NvidiaShutterGlasses g_shutterGlasses;

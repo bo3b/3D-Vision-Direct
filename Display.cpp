@@ -25,10 +25,17 @@ void Display::StartRefresh()
 {
     g_out << " --> refresh_thread StartRefresh " << endlog;
 
+    // Fire up the emitter with default timings.
+    g_shutterGlasses.WakeEmitter();
+    g_shutterGlasses.InitEmitter();
+
+    g_out << "Shutter glasses woken and started, " << endlog;
+
     // Allocate the thread that will run the dual present
     mRefreshThread = new std::thread(&Display::RefreshLoop, this);
 
     //SetThreadPriority(mRefreshThread, THREAD_PRIORITY_TIME_CRITICAL);
+
 }
 
 void Display::StopRefresh()
@@ -76,10 +83,13 @@ void Display::RefreshLoop()
             hr = g_GameSwapChain->Present(1, 0);
             if (FAILED(hr))
                 DebugBreak();
+            g_shutterGlasses.SetLeftEye();
+
             g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), eye::right, nullptr);
             hr = g_GameSwapChain->Present(1, 0);
             if (FAILED(hr))
                 DebugBreak();
+            g_shutterGlasses.SetRightEye();
         }
     }
 }
