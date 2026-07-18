@@ -25,13 +25,13 @@ Display::~Display()
 
 void Display::StartRefresh()
 {
-    g_out << " --> refresh_thread StartRefresh " << endlog;
+    g_out << "  --> refresh_thread StartRefresh " << endlog;
 
     // Fire up the emitter with default timings.
     g_shutterGlasses.WakeEmitter();
     g_shutterGlasses.InitEmitter();
 
-    g_out << "Shutter glasses woken and started, " << endlog;
+    g_out << "Display::StartRefresh - Shutter glasses woken and started. " << endlog;
 
     IDXGIDevice1* dxgi_device = nullptr;
     HR(g_GameDevice->QueryInterface(__uuidof(IDXGIDevice1), (void**)&dxgi_device));
@@ -48,7 +48,7 @@ void Display::StartRefresh()
 
 void Display::StopRefresh()
 {
-    g_out << " --> refresh_thread StopRefresh " << endlog;
+    g_out << "  --> refresh_thread StopRefresh " << endlog;
 
     mRefreshing = false;
     mRefreshThread->join();
@@ -60,14 +60,14 @@ void Display::StopRefresh()
 //  Some deep investigation into the different available Present types and buffer counts
 //  showed that using Present(1,0) is pretty much the only real option.  Present(0,0) will
 //  immediately show the buffer, and in Exclusive mode it will show screen tearing because
-//  it comes it at some time after the GPU is available. 
-//  
+//  it comes it at some time after the GPU is available.
+//
 //  Probably our best combination is g_bufferCount=3, with SetMaximumFrameLatency(2)
 //  so that we have the one being shown in frontbuffer, and the two pending in the queue.
 //  This can be longer to handle larger stalls, but in general should not be necessary to
 //  go beyond 2 in the queue. Anything bigger than that is a loading stall in hundreds of ms.
-// 
-//  This is also why there is not point in doing both eyes in the main loop.  It will 
+//
+//  This is also why there is not point in doing both eyes in the main loop.  It will
 //  always stop down to whatever the last one that was queued, either half done or not.
 //
 //  This cannot work in a game as currently written- the single device for output means that
@@ -102,20 +102,51 @@ void Display::RefreshLoop()
 }
 //--------------------------------------------------------------------------------------
 
-static double last_frame_time = 0;
+static DXGI_FRAME_STATISTICS stats              = {};
+static UINT&                 last_vblank_count  = stats.SyncRefreshCount;  // Aliased because those names suck
+static UINT&                 last_present_count = stats.PresentRefreshCount;
+
+static UINT   lost_frames     = 0;
+static double last_frame_time = 0;  // likely unnecessary with QPC in stats.
 
 void LogStalls()
 {
     double current_frame_time = g_Timer.GetElapsedMicroseconds();
+    double elapsed_ms         = (current_frame_time - last_frame_time) / 1000.0f;
     {
-        double elapsed_ms = (current_frame_time - last_frame_time) / 1000.0f;
-        bool   stall_1    = (elapsed_ms > 8.6f);
-        bool   stall_2    = (elapsed_ms > 16.9f);
+        bool stall_1 = (elapsed_ms > 8.6f);
+        bool stall_2 = (elapsed_ms > 16.9f);
 
-        if (stall_1)    
+        if (stall_1)
             g_out << "  frame refresh stall:  " << elapsed_ms << " ms" << (stall_2 ? "-- stall" : "") << endlog;
     }
     last_frame_time = current_frame_time;
+
+    // Follow presentation details to know if we need eye swap
+    HRESULT hr = g_GameSwapChain->GetFrameStatistics(&stats);
+    if (FAILED(hr))
+    {
+        if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT)
+            g_out << "  ---GetFrameStatistics disjoint error---  " << elapsed_ms << " ms" << endlog;
+        else
+            g_out << "  ---GetFrameStatistics error: " << std::hex << hr << std::dec << endlog;
+        return;
+    }
+
+    // Valid stats, let's check for stalls.
+    //
+    // We keep a running difference between the last_vblank_count and
+    // the last_present_count, which is some arbitrary number of dropped
+    // frames during statup. If that number grows and is different than the
+    // last time we checked- then we know we dropped a frame, because our
+    // Presents did not match our vBlanks.
+
+    if ((last_vblank_count - last_present_count) != lost_frames)
+    {
+        g_out << "  ---Dropped Frame---  " << elapsed_ms << " ms" << endlog;
+    }
+    lost_frames = last_vblank_count - last_present_count;
+    //g_out << "  lost_frames: " << lost_frames << "  last_vblank_count: " << last_vblank_count << "  last_present_count: "<< last_present_count << endlog;
 }
 
 //// Vblank clock: maps a QPC time to an absolute refresh count. Published by the

@@ -537,6 +537,8 @@ void cleanup_device()
 // When we hit F4, we want to toggle between windowed and exclusive fullscreen.
 void fullscreen(bool windowed)
 {
+    g_out << "\n\n>> SetFullscreenState: " << (!windowed ? "true" : "false") << endlog;
+
     // Stop the Output display loop, because we are reseting the output
     // backbuffer. This waits for thread to exit.
     g_Display->StopRefresh();
@@ -552,7 +554,7 @@ void fullscreen(bool windowed)
     HRESULT hr = g_GameSwapChain->SetFullscreenState(!windowed, NULL);
     if (FAILED(hr))
     {
-        g_out << "SetFullscreenState failed: " << std::hex << hr << std::dec << endlog;
+        g_out << "*** SetFullscreenState failed: " << std::hex << hr << std::dec << endlog;
         DebugBreak();
     }
 
@@ -561,6 +563,8 @@ void fullscreen(bool windowed)
 
     // With resized buffers we can now resume output display.
     g_Display->StartRefresh();
+
+    g_out << "<< SetFullscreenState: " << (!windowed ? "true" : "false") << "\n" << endlog;
 }
 
 //--------------------------------------------------------------------------------------
