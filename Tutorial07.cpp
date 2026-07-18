@@ -254,7 +254,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
         render_frame();  // both eyes
     }
-    
+
     g_Display->StopRefresh();
 
     // On escape for exit clean up and dispose objects.
@@ -311,6 +311,24 @@ void handleEvents()
                 fullscreen(g_windowed);
             }
             f4_was_down = f4_down;
+        }
+
+        // Cycle the GPU load pass: FMA iterations per pixel, per eye, on a
+        // screen-covering cube. Dial it while watching the measured "GPU
+        // frame" log line until it matches the game being simulated
+        // (Witcher3 at max ~= 25ms).
+        {
+            static bool f8_was_down = false;
+            bool        f8_down     = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+            if (f8_down && !f8_was_down)
+            {
+                static const UINT loads[]    = { 0, 8000, 16000, 32000, 64000 };
+                static int        load_index = 0;
+                load_index                   = (load_index + 1) % ARRAYSIZE(loads);
+                g_load_iterations            = loads[load_index];
+                g_out << "== F8: GPU load now " << loads[load_index] << " iterations/pixel per eye" << endlog;
+            }
+            f8_was_down = f8_down;
         }
     }
 }

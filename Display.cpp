@@ -76,8 +76,6 @@ void Display::StopRefresh()
 
 void Display::RefreshLoop()
 {
-    HRESULT hr;
-
     g_out << " --> RefreshLoop Startup " << endlog;
 
     mRefreshing = true;

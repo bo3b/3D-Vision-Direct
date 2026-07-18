@@ -33,9 +33,11 @@ ComPtr<ID3D11RenderTargetView> g_LR_RTV;
 ID3D11VertexShader*   g_pVertexShader   = nullptr;
 ID3D11GeometryShader* g_pGeometryShader = nullptr;
 ID3D11PixelShader*    g_pPixelShader    = nullptr;
-ID3D11InputLayout*    g_pVertexLayout   = nullptr;
-ID3D11Buffer*         g_pVertexBuffer   = nullptr;
-ID3D11Buffer*         g_pIndexBuffer    = nullptr;
+ID3D11PixelShader*    g_pLoadShader     = nullptr;
+
+ID3D11InputLayout* g_pVertexLayout = nullptr;
+ID3D11Buffer*      g_pVertexBuffer = nullptr;
+ID3D11Buffer*      g_pIndexBuffer  = nullptr;
 
 ID3D11Buffer* g_pSharedCB = nullptr;
 
@@ -60,7 +62,8 @@ struct shared_CB
     XMMATRIX mView;
     XMMATRIX mProjection;
     UINT     EyeIndex;  // Selects the g_LR_RTV array slice: 0 = left, 1 = right.
-    UINT     pad[3];    // Constant buffers must be a multiple of 16 bytes.
+    UINT     Load;      // loop count for PS to load up GPU.
+    UINT     pad[2];    // Constant buffers must be a multiple of 16 bytes.
 };
 
 //--------------------------------------------------------------------------------------
@@ -186,6 +189,7 @@ HRESULT init_dx11(HWND game_window)
     vp.TopLeftY = 0;
     g_GameImmediateContext->RSSetViewports(1, &vp);
 
+    //--------------------------------------------------------------------------------------
     // Compile the vertex shader
     ID3DBlob* vs_blob = nullptr;
     hr                = compile_shader_from_file(L"Tutorial07.fx", "VS", "vs_4_0", &vs_blob);
@@ -216,6 +220,7 @@ HRESULT init_dx11(HWND game_window)
     if (FAILED(hr))
         return hr;
 
+    //--------------------------------------------------------------------------------------
     // Compile the pixel shader
     ID3DBlob* ps_blob = nullptr;
     hr                = compile_shader_from_file(L"Tutorial07.fx", "PS", "ps_4_0", &ps_blob);
@@ -231,6 +236,7 @@ HRESULT init_dx11(HWND game_window)
     if (FAILED(hr))
         return hr;
 
+    //--------------------------------------------------------------------------------------
     // Compile and create the geometry shader. Only job is to stamp
     // SV_RenderTargetArrayIndex from EyeIndex, so each eye's draw lands in
     // its own slice of g_LR_RTV.
@@ -247,8 +253,34 @@ HRESULT init_dx11(HWND game_window)
     if (FAILED(hr))
         return hr;
 
+    //--------------------------------------------------------------------------------------
+    // Compile and create the GPU load pixel shader (F8), plus its b1 constant
+    // buffer carrying the iteration count.
+    hr = compile_shader_from_file(L"Tutorial07.fx", "PS_Load", "ps_4_0", &vs_blob);
+    if (FAILED(hr))
+    {
+        MessageBox(nullptr, L"The FX file cannot be compiled (PS_Load).", L"Error", MB_OK);
+        return hr;
+    }
+    hr = g_GameDevice->CreatePixelShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, &g_pLoadShader);
+    vs_blob->Release();
+    if (FAILED(hr))
+        return hr;
+
+    //--------------------------------------------------------------------------------------
     // Set the input layout
     g_GameImmediateContext->IASetInputLayout(g_pVertexLayout);
+
+    // Set raster state to CULL_NONE so that the GPU loader works. We don't care
+    // about culling optimization for the whole test app. The load cube is scaled
+    // to enclose the camera, so every face presents its back side to us.
+    D3D11_RASTERIZER_DESC rd = {};
+    rd.FillMode              = D3D11_FILL_SOLID;
+    rd.CullMode              = D3D11_CULL_NONE;
+    rd.DepthClipEnable       = TRUE;
+    ID3D11RasterizerState* cull_raster_state;
+    HR(g_GameDevice->CreateRasterizerState(&rd, &cull_raster_state));
+    g_GameImmediateContext->RSSetState(cull_raster_state);
 
     // Create vertex buffer for the cube
     simple_vertex vertices[] = {
@@ -366,6 +398,37 @@ HRESULT init_dx11(HWND game_window)
 }
 
 //--------------------------------------------------------------------------------------
+// Waste some cycles in the Load_PS to simulate a slow running game frame.
+//--------------------------------------------------------------------------------------
+void load_GPU(shared_CB load_cb)
+{
+    // GPU load burst (F8): a screen-covering cube shaded with the long
+    // dependent-FMA loop, drawn BEFORE the clear wipes it - pure GPU work with
+    // no visual effect, simulating a heavy game's multi-ms command-buffer
+    // burst (the Witcher3-at-max case this lab exists to reproduce).
+    if (g_load_iterations > 0)
+    {
+        ID3D11RenderTargetView* rtv_load[] = { g_LR_RTV.Get() };
+        g_GameImmediateContext->OMSetRenderTargets(1, rtv_load, nullptr);
+
+        load_cb.Load = g_load_iterations;
+
+        load_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(8.0f, 8.0f, 8.0f));
+        load_cb.mView       = XMMatrixTranspose(g_View);
+        load_cb.mProjection = XMMatrixTranspose(g_Projection);
+        g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &load_cb, 0, 0);
+
+        g_GameImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+        g_GameImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
+        g_GameImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
+        g_GameImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
+        g_GameImmediateContext->PSSetShader(g_pLoadShader, nullptr, 0);
+        g_GameImmediateContext->PSSetConstantBuffers(0, 1, &g_pSharedCB);
+        g_GameImmediateContext->DrawIndexed(36, 0, 0);
+    }
+}
+
+//--------------------------------------------------------------------------------------
 // Render current image, eye independent. eye_cb is this eye's projection setup;
 // updated here (not by the caller) because the load pass below also writes b0.
 //--------------------------------------------------------------------------------------
@@ -447,6 +510,10 @@ void render_frame()
         // a single clear resets the whole pair; clearing per eye inside
         // draw_cube would erase the slice the previous eye just drew.
         g_GameImmediateContext->ClearRenderTargetView(g_LR_RTV.Get(), Colors::OliveDrab);
+
+        // Load the GPU with wasted PS drawing when enabled.  When enabled it will
+        // draw only in left eye.
+        load_GPU(cb);
 
         // <----------------------- Left Eye -------------------------------
         //
@@ -564,7 +631,8 @@ void fullscreen(bool windowed)
     // With resized buffers we can now resume output display.
     g_Display->StartRefresh();
 
-    g_out << "<< SetFullscreenState: " << (!windowed ? "true" : "false") << "\n" << endlog;
+    g_out << "<< SetFullscreenState: " << (!windowed ? "true" : "false") << "\n"
+          << endlog;
 }
 
 //--------------------------------------------------------------------------------------
