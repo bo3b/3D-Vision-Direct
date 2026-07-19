@@ -31,6 +31,10 @@ void Display::StartRefresh()
     g_shutterGlasses.WakeEmitter();
     g_shutterGlasses.InitEmitter();
 
+    // Enable LightBoost if possible.
+    //g_shutterGlasses.GetCurrentResolution();
+    //g_shutterGlasses.EnableLightBoost();
+
     g_out << "Display::StartRefresh - Shutter glasses woken and started. " << endlog;
 
     IDXGIDevice1* dxgi_device = nullptr;
@@ -100,9 +104,6 @@ void Display::RefreshLoop()
 }
 //--------------------------------------------------------------------------------------
 
-static DXGI_FRAME_STATISTICS stats              = {};
-static UINT&                 last_vblank_count  = stats.SyncRefreshCount;  // Aliased because those names suck
-static UINT&                 last_present_count = stats.PresentRefreshCount;
 
 static UINT   lost_frames     = 0;
 static double last_frame_time = 0;  // likely unnecessary with QPC in stats.
@@ -121,7 +122,8 @@ void LogStalls()
     last_frame_time = current_frame_time;
 
     // Follow presentation details to know if we need eye swap
-    HRESULT hr = g_GameSwapChain->GetFrameStatistics(&stats);
+    DXGI_FRAME_STATISTICS stats;
+    HRESULT               hr = g_GameSwapChain->GetFrameStatistics(&stats);
     if (FAILED(hr))
     {
         if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT)
@@ -139,11 +141,11 @@ void LogStalls()
     // last time we checked- then we know we dropped a frame, because our
     // Presents did not match our vBlanks.
 
-    if ((last_vblank_count - last_present_count) != lost_frames)
+    if ((stats.SyncRefreshCount - stats.PresentCount) != lost_frames)
     {
         g_out << "  ---Dropped Frame---  " << elapsed_ms << " ms" << endlog;
     }
-    lost_frames = last_vblank_count - last_present_count;
+    lost_frames = stats.SyncRefreshCount - stats.PresentCount;
     //g_out << "  lost_frames: " << lost_frames << "  last_vblank_count: " << last_vblank_count << "  last_present_count: "<< last_present_count << endlog;
 }
 
