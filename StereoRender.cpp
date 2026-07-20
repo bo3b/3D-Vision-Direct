@@ -2,6 +2,8 @@
 
 #include "Globals.h"
 #include "Utils.h"
+#include "Overlay.h"
+
 #include "DirectXMath.h"
 #include "DirectxColors.h"
 
@@ -46,6 +48,8 @@ XMMATRIX g_View;
 XMMATRIX g_Projection;
 
 float g_bar_x = 0.0f;  // Judder test bar position, left to right
+
+Overlay* imgui_Overlay;
 
 //--------------------------------------------------------------------------------------
 // Structures
@@ -149,6 +153,7 @@ HRESULT init_dx11(HWND game_window)
     }
 #endif
 
+    //--------------------------------------------------------------------------------------
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.
     // They need to be identical to the drawing backbuffer in size and color format.
     {
@@ -178,6 +183,11 @@ HRESULT init_dx11(HWND game_window)
         g_GameImmediateContext->QueryInterface(_uuidof(ID3D11Multithread), &multi_thread);
         multi_thread->SetMultithreadProtected(true);
     }
+
+    //--------------------------------------------------------------------------------------
+    // Bring up the ImGui debug overlay. It renders into the scene array (both eyes)
+    // before the copy to the handoff, so g_LR_tex must exist first.
+    imgui_Overlay = new Overlay(game_window, g_GameDevice, g_GameImmediateContext, g_LR_tex.Get());
 
     // Default wide open viewport
     D3D11_VIEWPORT vp;
@@ -560,7 +570,6 @@ void render_frame()
         DebugBreak();
     }
 
-    // Publish the pair to the presenter.
     copy_to_handoff();
 }
 
@@ -569,6 +578,9 @@ void render_frame()
 //--------------------------------------------------------------------------------------
 void cleanup_device()
 {
+    if (imgui_Overlay)
+        delete (imgui_Overlay);
+
     if (g_GameSwapChain)
         g_GameSwapChain->SetFullscreenState(FALSE, nullptr);
 
@@ -646,10 +658,12 @@ void copy_to_handoff()
     // Call through to game's hooked Present to keep hooks happy.
     HR(g_GameSwapChain->Present(0, DXGI_PRESENT_TEST));
 
-    // Copy both eyes into storage for the Latest Frame from the Game.
-    // This copy is available for the monitor display to pick up.
+    // Composite the overlay onto the scene BEFORE the copy, so the single CopyResource
+    // below carries scene+overlay together as one atomic write. Drawing into the handoff
+    // directly would let the presenter's copy interleave mid-draw -> flickering overlay.
+    imgui_Overlay->Render();
 
-    {
-        g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());  // both eyes
-    }
+    // Copy both eyes (now including the overlay) into storage for the Latest Frame from
+    // the Game. This copy is available for the monitor display to pick up.
+    g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());  // both eyes
 }

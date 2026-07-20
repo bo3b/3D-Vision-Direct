@@ -357,6 +357,11 @@
       <Command>copy *.fx $(OutDir)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>imgui-1.92.8;imgui-1.92.8\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <FxCompile Include="Tutorial07.fx">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Profile|Win32'">true</ExcludedFromBuild>
@@ -409,13 +414,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Display.cpp" />
+    <ClCompile Include="Overlay.cpp" />
     <ClCompile Include="ShutterGlasses.cpp" />
     <ClCompile Include="StereoRender.cpp" />
     <ClCompile Include="Tutorial07.cpp" />
+    <ClCompile Include="imgui-1.92.8\imgui.cpp" />
+    <ClCompile Include="imgui-1.92.8\imgui_draw.cpp" />
+    <ClCompile Include="imgui-1.92.8\imgui_tables.cpp" />
+    <ClCompile Include="imgui-1.92.8\imgui_widgets.cpp" />
+    <ClCompile Include="imgui-1.92.8\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui-1.92.8\backends\imgui_impl_dx11.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Display.h" />
     <ClInclude Include="Globals.h" />
+    <ClInclude Include="Overlay.h" />
     <ClInclude Include="Utils.h" />
     <ClInclude Include="nvapi.h" />
     <ClInclude Include="nvapi_lite_common.h" />
