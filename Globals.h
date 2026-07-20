@@ -23,9 +23,6 @@ inline bool g_judder_bar = true;  // F7 toggles a test bar to show judder on rep
 
 inline DXGI_SWAP_EFFECT g_swap_effect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
-inline UINT frame_rate  = 20;
-inline UINT g_SleepTime = 1000 / (frame_rate);  // 50Hz for testing judder, etc. (in ms)
-
 inline UINT g_load_iterations = 0;  // GPU loading count to create deliberate stalls.
 
 //--------------------------------------------------------------------------------------

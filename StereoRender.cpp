@@ -487,8 +487,6 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
-    Sleep(g_SleepTime);  // pretend GPU work
-
     //
     // Rotate cube around the origin
     //
@@ -659,11 +657,10 @@ void copy_to_handoff()
     HR(g_GameSwapChain->Present(0, DXGI_PRESENT_TEST));
 
     // Composite the overlay onto the scene BEFORE the copy, so the single CopyResource
-    // below carries scene+overlay together as one atomic write. Drawing into the handoff
-    // directly would let the presenter's copy interleave mid-draw -> flickering overlay.
+    // below carries scene+overlay together as one atomic write.
     imgui_Overlay->Render();
 
     // Copy both eyes (now including the overlay) into storage for the Latest Frame from
     // the Game. This copy is available for the monitor display to pick up.
-    g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());  // both eyes
+    g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get()); 
 }
