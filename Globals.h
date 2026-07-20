@@ -56,3 +56,5 @@ inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2
 //--------------------------------------------------------------------------------------
 inline NvidiaShutterGlasses g_shutterGlasses;
 inline UINT                 g_FrameLatency = 2;
+
+inline UINT g_DroppedFrames = 0;

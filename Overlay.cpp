@@ -1,10 +1,13 @@
 #include "Overlay.h"
 
 #include "Utils.h"
+#include "Globals.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+#include <d3d11.h>
+#include <Windows.h>
 
 //--------------------------------------------------------------------------------------
 // ImGui debug overlay.
@@ -74,9 +77,16 @@ void Overlay::Render()
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
+    // FPS on left
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::Text("Game: %.1f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
+    ImGui::End();
+
+    // Dropped frames on right
+    ImGui::SetNextWindowPos(ImVec2(2200, 10), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Dropped", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Text("Dropped: %i", g_DroppedFrames);
     ImGui::End();
 
     ImGui::Render();

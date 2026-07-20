@@ -144,6 +144,7 @@ void LogStalls()
     if ((stats.SyncRefreshCount - stats.PresentCount) != lost_frames)
     {
         g_out << "  ---Dropped Frame---  " << elapsed_ms << " ms" << endlog;
+        g_DroppedFrames += 1;
     }
     lost_frames = stats.SyncRefreshCount - stats.PresentCount;
     //g_out << "  lost_frames: " << lost_frames << "  last_vblank_count: " << last_vblank_count << "  last_present_count: "<< last_present_count << endlog;
