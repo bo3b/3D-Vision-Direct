@@ -83,10 +83,12 @@ void Overlay::Render()
     ImGui::Text("Game: %.1f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::End();
 
-    // Dropped frames on right
+    // Dropped frames and timing on right
     ImGui::SetNextWindowPos(ImVec2(2200, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Dropped", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::Text("Dropped: %i", g_DroppedFrames);
+    ImGui::Text("Iterations: %i", g_load_iterations);
+    ImGui::Text("Load ms: %.2f", g_LoadTimer->LastMs());
     ImGui::End();
 
     ImGui::Render();

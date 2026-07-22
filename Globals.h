@@ -33,7 +33,8 @@ inline HWND      g_hWnd  = nullptr;  // Main window created by the 'game'
 
 inline Display* g_Display = nullptr;  // output display
 
-inline Timer g_Timer;  // microsecond accuracy
+inline Timer     g_Timer;      // microsecond accuracy
+inline GpuTimer* g_LoadTimer;  // ms accuracy?
 
 //--------------------------------------------------------------------------------------
 // StereoRender globals

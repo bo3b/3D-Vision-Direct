@@ -154,6 +154,11 @@ HRESULT init_dx11(HWND game_window)
 #endif
 
     //--------------------------------------------------------------------------------------
+    // Create the GPU timer sampler that allows us to measure GPU load.
+    //--------------------------------------------------------------------------------------
+    g_LoadTimer = new GpuTimer(g_GameDevice, g_GameImmediateContext);
+
+    //--------------------------------------------------------------------------------------
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.
     // They need to be identical to the drawing backbuffer in size and color format.
     {
@@ -412,30 +417,34 @@ HRESULT init_dx11(HWND game_window)
 //--------------------------------------------------------------------------------------
 void load_GPU(shared_CB load_cb)
 {
-    // GPU load burst (F8): a screen-covering cube shaded with the long
-    // dependent-FMA loop, drawn BEFORE the clear wipes it - pure GPU work with
-    // no visual effect, simulating a heavy game's multi-ms command-buffer
-    // burst (the Witcher3-at-max case this lab exists to reproduce).
-    if (g_load_iterations > 0)
+    g_LoadTimer->Begin();
     {
-        ID3D11RenderTargetView* rtv_load[] = { g_LR_RTV.Get() };
-        g_GameImmediateContext->OMSetRenderTargets(1, rtv_load, nullptr);
+        // GPU load burst (F8): a screen-covering cube shaded with the long
+        // dependent-FMA loop, drawn BEFORE the clear wipes it - pure GPU work with
+        // no visual effect, simulating a heavy game's multi-ms command-buffer
+        // burst (the Witcher3-at-max case this lab exists to reproduce).
+        if (g_load_iterations > 0)
+        {
+            ID3D11RenderTargetView* rtv_load[] = { g_LR_RTV.Get() };
+            g_GameImmediateContext->OMSetRenderTargets(1, rtv_load, nullptr);
 
-        load_cb.Load = g_load_iterations;
+            load_cb.Load = g_load_iterations;
 
-        load_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(8.0f, 8.0f, 8.0f));
-        load_cb.mView       = XMMatrixTranspose(g_View);
-        load_cb.mProjection = XMMatrixTranspose(g_Projection);
-        g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &load_cb, 0, 0);
+            load_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(8.0f, 8.0f, 8.0f));
+            load_cb.mView       = XMMatrixTranspose(g_View);
+            load_cb.mProjection = XMMatrixTranspose(g_Projection);
+            g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &load_cb, 0, 0);
 
-        g_GameImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-        g_GameImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
-        g_GameImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
-        g_GameImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
-        g_GameImmediateContext->PSSetShader(g_pLoadShader, nullptr, 0);
-        g_GameImmediateContext->PSSetConstantBuffers(0, 1, &g_pSharedCB);
-        g_GameImmediateContext->DrawIndexed(36, 0, 0);
+            g_GameImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+            g_GameImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
+            g_GameImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
+            g_GameImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
+            g_GameImmediateContext->PSSetShader(g_pLoadShader, nullptr, 0);
+            g_GameImmediateContext->PSSetConstantBuffers(0, 1, &g_pSharedCB);
+            g_GameImmediateContext->DrawIndexed(36, 0, 0);
+        }
     }
+    g_LoadTimer->End();
 }
 
 //--------------------------------------------------------------------------------------
@@ -662,5 +671,5 @@ void copy_to_handoff()
 
     // Copy both eyes (now including the overlay) into storage for the Latest Frame from
     // the Game. This copy is available for the monitor display to pick up.
-    g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get()); 
+    g_GameImmediateContext->CopyResource(g_game_latest_LR.Get(), g_LR_tex.Get());
 }
