@@ -3,6 +3,7 @@
 #include "Globals.h"
 #include "Utils.h"
 #include "Overlay.h"
+#include "Timer.h"
 
 #include "DirectXMath.h"
 #include "DirectxColors.h"
@@ -496,7 +497,11 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
-    //Sleep(1);
+    // We want to not just hog the GPU with a free running loop, so this stalls out
+    // the drawing thread for 100us, which is long enough to allow the GPU to catch
+    // up on it's GPU scheduling and draws. That translates directly to a smoother
+    // PS_Load with no spikes. Closer to a game style result.
+    g_Timer.SleepMicroseconds(100);
 
     //
     // Rotate cube around the origin
