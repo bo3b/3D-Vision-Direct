@@ -322,11 +322,10 @@ void handleEvents()
             bool        f8_down     = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
             if (f8_down && !f8_was_down)
             {
-                static const UINT loads[]    = { 0, 10, 100, 1000, 10000 };
                 static int        load_index = 0;
-                load_index                   = (load_index + 1) % ARRAYSIZE(loads);
-                g_load_iterations            = loads[load_index];
-                g_out << "== F8: GPU load now " << loads[load_index] << " iterations/pixel per eye" << endlog;
+                load_index                   = (load_index + 1) % ARRAYSIZE(g_loads);
+                g_load_iterations            = g_loads[load_index];
+                g_out << "== F8: GPU load now " << g_loads[load_index] << " iterations/pixel per eye" << endlog;
             }
             f8_was_down = f8_down;
         }

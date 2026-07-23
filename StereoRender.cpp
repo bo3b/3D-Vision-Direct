@@ -496,6 +496,8 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
+    //Sleep(1);
+
     //
     // Rotate cube around the origin
     //

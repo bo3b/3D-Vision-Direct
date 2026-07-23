@@ -8,6 +8,7 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <Windows.h>
+#include <cfloat>
 
 //--------------------------------------------------------------------------------------
 // ImGui debug overlay.
@@ -53,8 +54,8 @@ Overlay::Overlay(HWND game_window, ID3D11Device* game_device, ID3D11DeviceContex
     // scales the text (crisply, via 1.92's dynamic font rasterization) and
     // ScaleAllSizes scales the padding/spacing/borders to match.
     ImGuiStyle& style = ImGui::GetStyle();
-    style.ScaleAllSizes(2.5f);
-    style.FontScaleMain = 2.5f;
+    style.ScaleAllSizes(2.1f);
+    style.FontScaleMain = 2.1f;
     ImGui_ImplWin32_Init(game_window);
     ImGui_ImplDX11_Init(game_device, game_immediate_context);
 }
@@ -78,17 +79,43 @@ void Overlay::Render()
     ImGui::NewFrame();
 
     // FPS on left
+    ImGuiIO& io = ImGui::GetIO();
+
+
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::Text("Game: %.1f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
+    {
+        ImGui::Text("Game: %.0f FPS  (%.1f ms)", io.Framerate, 1000.0f / io.Framerate);
+
+        // Push RAW instantaneous FPS into the history ring. io.Framerate smooths over ~60 frames
+        const float fps_now            = (io.DeltaTime > 0.0f) ? 1.0f / io.DeltaTime : 0.0f;
+        fps_history_[fps_history_idx_] = fps_now;
+        fps_history_idx_               = (fps_history_idx_ + 1) % kFpsHistorySize;
+        // Scale 0..60 so the y-range tracks the actual data.  Values_offset makes this a ring buffer.
+        ImGui::PlotLines("##fps", fps_history_, kFpsHistorySize, fps_history_idx_, nullptr, 0.0f, 60.0f, ImVec2(400, 100));
+    }
     ImGui::End();
 
     // Dropped frames and timing on right
-    ImGui::SetNextWindowPos(ImVec2(2200, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(2000, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Dropped", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::Text("Dropped: %i", g_DroppedFrames);
-    ImGui::Text("Iterations: %i", g_load_iterations);
-    ImGui::Text("Load ms: %.2f", g_LoadTimer->LastMs());
+    {
+        ImGui::Text("Dropped: %i", g_DroppedFrames);
+        ImGui::Text("Iterations: %i", g_load_iterations);
+        // Scale 0..20 ms
+        const float load_now             = g_LoadTimer->LastMs();
+        load_history_[load_history_idx_] = load_now;
+        load_history_idx_                = (load_history_idx_ + 1) % kFpsHistorySize;
+
+        // Peak-hold of what's currently in the ring, to confirm spikes are being sampled
+        // even if a single-frame needle isn't visually obvious on the graph.
+        float peak = 0.0f;
+        for each (float v in load_history_)
+            if (v > peak) peak = v;
+
+        ImGui::Text("Load ms: %4.1f  peak %.1f", load_now, peak);
+        ImGui::PlotLines("##ms", load_history_, kFpsHistorySize, load_history_idx_, nullptr, 0.0f, 20.0f, ImVec2(400, 100));
+    }
     ImGui::End();
 
     ImGui::Render();

@@ -23,7 +23,8 @@ inline bool g_judder_bar = true;  // F7 toggles a test bar to show judder on rep
 
 inline DXGI_SWAP_EFFECT g_swap_effect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
-inline UINT g_load_iterations = 0;  // GPU loading count to create deliberate stalls.
+inline UINT       g_load_iterations = 0;  // GPU loading count to create deliberate stalls.
+inline const UINT g_loads[]           = { 0, 10, 100, 1000, 2000, 3000, 4000, 5000 };
 
 //--------------------------------------------------------------------------------------
 // App/Game globals
