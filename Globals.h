@@ -23,8 +23,21 @@ inline bool g_judder_bar = true;  // F7 toggles a test bar to show judder on rep
 
 inline DXGI_SWAP_EFFECT g_swap_effect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;  // Allows windowed 3D.
 
-inline UINT       g_load_iterations = 0;  // GPU loading count to create deliberate stalls.
-inline const UINT g_loads[]           = { 0, 10, 100, 1000, 2000, 3000, 4000, 5000 };
+// Load parameters for the artificially long Draw call. This redraws in the PS_Load the
+// g_stall_iterations time, so that we don't return from Draw for a long time. Can degenerate
+// into too much work to ever be Presented in the 8.3ms frame timing.
+inline UINT       g_stall_iterations;  // Also shown in ImGUI
+inline UINT       load_index = 5;      // Start at
+inline const UINT g_loads[]  = { 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000 };
+
+// Load parameters for the main drawing of N cubes.  We can add 5 more cubes at each F6,
+// or then also add more PS_Load waste per cube with F5.
+inline UINT       g_cube_iterations;                                      // FMA iterations per pixel for EACH scene cube's PS.
+static int        cube_load_index = 1;                                    // 
+inline const UINT g_cube_loads[]  = { 0, 50, 100, 200, 400, 800, 1600 };  // F5 cycles.
+inline UINT       g_cube_rows     = 1;                                    // Cube grid depth. 5 cubes wide × g_cube_rows deep.
+                                                                          // F6 adds another row going into the screen; a game-like
+                                                                          // spread of draw calls, distinct from PS_Load's single-shader spike.
 
 //--------------------------------------------------------------------------------------
 // App/Game globals

@@ -93,6 +93,8 @@ void Overlay::Render()
         fps_history_idx_               = (fps_history_idx_ + 1) % kFpsHistorySize;
         // Scale 0..60 so the y-range tracks the actual data.  Values_offset makes this a ring buffer.
         ImGui::PlotLines("##fps", fps_history_, kFpsHistorySize, fps_history_idx_, nullptr, 0.0f, 60.0f, ImVec2(400, 100));
+        ImGui::Text("Rows: %i", g_cube_rows);
+        ImGui::Text("Cube Load: %i", g_cube_iterations);
     }
     ImGui::End();
 
@@ -102,6 +104,7 @@ void Overlay::Render()
     {
         ImGui::Text("Dropped: %i", g_DroppedFrames);
         ImGui::Text("Iterations: %i", g_load_iterations);
+        ImGui::Text("Iterations: %i", g_stall_iterations);
         // Scale 0..20 ms
         const float load_now             = g_LoadTimer->LastMs();
         load_history_[load_history_idx_] = load_now;

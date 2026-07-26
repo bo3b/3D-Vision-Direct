@@ -313,6 +313,35 @@ void handleEvents()
             f4_was_down = f4_down;
         }
 
+        // Add another 5 rows of cubes going into the screen. Each row is 5 cubes wide;
+        // g_cube_rows starts at 1. This is a game-like scattered draw load, distinct
+        // from the PS_Load single-shader spike stress tester on F7/F8.
+        {
+            static bool f6_was_down = false;
+            bool        f6_down     = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+            if (f6_down && !f6_was_down)
+            {
+                g_cube_rows += 5;
+                g_out << "== F6: cube rows now " << g_cube_rows << " (" << (5 * g_cube_rows) << " cubes/eye)" << endlog;
+            }
+            f6_was_down = f6_down;
+        }
+
+        // Cycle per-cube pixel-shader iterations. Small dependent-FMA loop per pixel
+        // for each scene cube, so each cube costs some real GPU time. Combined with
+        // F6, this approximates a real-game frame profile (many cubes × moderate PS).
+        {
+            static bool f5_was_down = false;
+            bool        f5_down     = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+            if (f5_down && !f5_was_down)
+            {
+                cube_load_index             = (cube_load_index + 1) % ARRAYSIZE(g_cube_loads);
+                g_cube_iterations                 = g_cube_loads[cube_load_index];
+                g_out << "== F5: per-cube PS load now " << g_cube_iterations << " iterations/pixel" << endlog;
+            }
+            f5_was_down = f5_down;
+        }
+
         // Cycle the GPU load pass: FMA iterations per pixel, per eye, on a
         // screen-covering cube. Dial it while watching the measured "GPU
         // frame" log line until it matches the game being simulated
@@ -322,12 +351,26 @@ void handleEvents()
             bool        f8_down     = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
             if (f8_down && !f8_was_down)
             {
-                static int        load_index = 0;
-                load_index                   = (load_index + 1) % ARRAYSIZE(g_loads);
-                g_load_iterations            = g_loads[load_index];
+                load_index            = (load_index + 1) % ARRAYSIZE(g_loads);
+                g_stall_iterations     = g_loads[load_index];
                 g_out << "== F8: GPU load now " << g_loads[load_index] << " iterations/pixel per eye" << endlog;
             }
             f8_was_down = f8_down;
+        }
+        // Cycle the GPU load pass: FMA iterations per pixel, per eye, on a
+        // screen-covering cube. Dial it while watching the measured "GPU
+        // frame" log line until it matches the game being simulated
+        // (Witcher3 at max ~= 25ms).
+        {
+            static bool f7_was_down = false;
+            bool        f7_down     = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+            if (f7_down && !f7_was_down)
+            {
+                load_index            = (load_index - 1) % ARRAYSIZE(g_loads);
+                g_stall_iterations     = g_loads[load_index];
+                g_out << "== F7: GPU load now " << g_loads[load_index] << " iterations/pixel per eye" << endlog;
+            }
+            f7_was_down = f7_down;
         }
     }
 }

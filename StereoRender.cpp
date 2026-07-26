@@ -67,7 +67,7 @@ struct shared_CB
     XMMATRIX mView;
     XMMATRIX mProjection;
     UINT     EyeIndex;  // Selects the g_LR_RTV array slice: 0 = left, 1 = right.
-    UINT     Load;      // loop count for PS to load up GPU.
+    UINT     Load;      // loop count for PS to load up GPU for both heavy Draw and main cubes.
     UINT     pad[2];    // Constant buffers must be a multiple of 16 bytes.
 };
 
@@ -424,12 +424,12 @@ void load_GPU(shared_CB load_cb)
         // dependent-FMA loop, drawn BEFORE the clear wipes it - pure GPU work with
         // no visual effect, simulating a heavy game's multi-ms command-buffer
         // burst (the Witcher3-at-max case this lab exists to reproduce).
-        if (g_load_iterations > 0)
+        if (g_stall_iterations > 0)
         {
             ID3D11RenderTargetView* rtv_load[] = { g_LR_RTV.Get() };
             g_GameImmediateContext->OMSetRenderTargets(1, rtv_load, nullptr);
 
-            load_cb.Load = g_load_iterations;
+            load_cb.Load = g_stall_iterations;
 
             load_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(8.0f, 8.0f, 8.0f));
             load_cb.mView       = XMMatrixTranspose(g_View);
@@ -467,13 +467,35 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
     //
     shared_CB cb = eye_cb;
     cb.EyeIndex  = rightEye ? 1 : 0;
-    g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+    cb.Load      = g_cube_iterations;  // per-cube PS iterations for the grid cubes
     g_GameImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_GameImmediateContext->VSSetConstantBuffers(0, 1, &g_pSharedCB);
     g_GameImmediateContext->GSSetShader(g_pGeometryShader, nullptr, 0);
     g_GameImmediateContext->GSSetConstantBuffers(0, 1, &g_pSharedCB);
-    g_GameImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-    g_GameImmediateContext->DrawIndexed(36, 0, 0);
+    g_GameImmediateContext->PSSetShader(g_pLoadShader, nullptr, 0);  // heavier PS per cube
+    g_GameImmediateContext->PSSetConstantBuffers(0, 1, &g_pSharedCB);
+
+    // Grid of cubes: 5 wide × g_cube_rows deep. Each cube is one DrawIndexed +
+    // one UpdateSubresource with PS_Load doing g_cube_iterations FMA iterations per
+    // pixel- so more rows AND heavier per-cube shader combine into a game-like
+    // per-frame profile. First row sits near the camera; additional rows extend
+    // into the screen. Cubes are scaled to overlap (overdraw is a real game cost).
+    const float scale     = 1.0f;
+    const float spacing_x = 2.2f;
+    const float spacing_z = 2.5f;
+    const int   cols      = 5;
+    for (UINT row = 0; row < g_cube_rows; row++)
+    {
+        for (int col = 0; col < cols; col++)
+        {
+            float    x        = (col - 2) * spacing_x;
+            float    z        = float(row) * spacing_z;
+            XMMATRIX per_cube = XMMatrixScaling(scale, scale, scale) * g_World * XMMatrixTranslation(x, 0.0f, z);
+            cb.mWorld         = XMMatrixTranspose(per_cube);
+            g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &cb, 0, 0);
+            g_GameImmediateContext->DrawIndexed(36, 0, 0);
+        }
+    }
 
     // Judder test bar (F7 toggles): the cube geometry squeezed into a thin
     // vertical bar, sweeping the width at constant speed. Drawn identically in
@@ -482,11 +504,16 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
     // sweep, which the slowly rotating cube is too subtle to reveal.
     if (g_judder_bar)
     {
+        // Bar uses the plain PS (no load) so it stays clean/bright- diagnostic value
+        // depends on it being obvious against the darker load-shaded cubes.
+        g_GameImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+
         shared_CB bar_cb   = {};
         bar_cb.mWorld      = XMMatrixTranspose(XMMatrixScaling(0.06f, 4.0f, 0.06f) * XMMatrixTranslation(g_bar_x, 1.0f, 0.0f));
         bar_cb.mView       = XMMatrixTranspose(g_View);
         bar_cb.mProjection = XMMatrixTranspose(g_Projection);
         bar_cb.EyeIndex    = cb.EyeIndex;
+        bar_cb.Load        = 0;
         g_GameImmediateContext->UpdateSubresource(g_pSharedCB, 0, nullptr, &bar_cb, 0, 0);
         g_GameImmediateContext->DrawIndexed(36, 0, 0);
     }
