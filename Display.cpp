@@ -40,7 +40,7 @@ void Display::StartRefresh()
     IDXGIDevice1* dxgi_device = nullptr;
     HR(g_GameDevice->QueryInterface(__uuidof(IDXGIDevice1), (void**)&dxgi_device));
     {
-        HR(dxgi_device->SetMaximumFrameLatency(g_FrameLatency));
+        HR(dxgi_device->SetMaximumFrameLatency(g_bufferCount - 1));
     }
     dxgi_device->Release();
 

@@ -14,7 +14,7 @@ using Microsoft::WRL::ComPtr;
 // Testing parameters
 //--------------------------------------------------------------------------------------
 
-inline UINT g_bufferCount = 3;  // Quad buffered stereo- Front/Back, next up Front/Back
+inline UINT g_bufferCount = 5;  // Quad buffered stereo- Front/Back, next up Front/Back
 
 inline UINT g_ScreenWidth  = 2560;  // Starting window size
 inline UINT g_ScreenHeight = 1440;
@@ -70,6 +70,5 @@ inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2
 // Display output globals
 //--------------------------------------------------------------------------------------
 inline NvidiaShutterGlasses g_shutterGlasses;
-inline UINT                 g_FrameLatency = 2;
 
 inline UINT g_DroppedFrames = 0;

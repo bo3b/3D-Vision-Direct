@@ -92,7 +92,7 @@ void Overlay::Render()
         fps_history_[fps_history_idx_] = fps_now;
         fps_history_idx_               = (fps_history_idx_ + 1) % kFpsHistorySize;
         // Scale 0..60 so the y-range tracks the actual data.  Values_offset makes this a ring buffer.
-        ImGui::PlotLines("##fps", fps_history_, kFpsHistorySize, fps_history_idx_, nullptr, 0.0f, 60.0f, ImVec2(400, 100));
+        ImGui::PlotLines("##fps", fps_history_, kFpsHistorySize, fps_history_idx_, nullptr, 0.0f, 120.0f, ImVec2(400, 100));
         ImGui::Text("Rows: %i", g_cube_rows);
         ImGui::Text("Cube Load: %i", g_cube_iterations);
     }
