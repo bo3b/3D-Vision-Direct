@@ -155,9 +155,13 @@ HRESULT init_dx11(HWND game_window)
 #endif
 
     //--------------------------------------------------------------------------------------
-    // Create the GPU timer sampler that allows us to measure GPU load.
+    // Create the GPU timers. LoadTimer brackets the game's PS_Load draw (measures the
+    // shader's own GPU cost). CopyTimer brackets the presenter's CopySubresourceRegion
+    // (measures whether the Copy is waiting behind game GPU work in the shared command
+    // stream — a spike here directly diagnoses head-of-queue stall / near-slip).
     //--------------------------------------------------------------------------------------
     g_LoadTimer = new GpuTimer(g_GameDevice, g_GameImmediateContext);
+    g_CopyTimer = new GpuTimer(g_GameDevice, g_GameImmediateContext);
 
     //--------------------------------------------------------------------------------------
     // Create the offscreen Texture2D for both eyes that we will DrawIndexed into.

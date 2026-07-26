@@ -17,6 +17,8 @@ private:
     int                  fps_history_idx_               = 0;
     float                load_history_[kFpsHistorySize] = {};
     int                  load_history_idx_              = 0;
+    float                copy_history_[kFpsHistorySize] = {};
+    int                  copy_history_idx_              = 0;
 
 public:
     Overlay(HWND game_window, ID3D11Device* game_device, ID3D11DeviceContext* game_immediate_context, ID3D11Texture2D* scene_LR);

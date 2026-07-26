@@ -106,7 +106,12 @@ void Display::RefreshLoop()
             g_GameImmediateContext->CopyResource(mDisplayPair.Get(), g_game_latest_LR.Get());
 
         // Copy whichever eye is up next from our owned snapshot. Bracket with
+        // GpuTimer to catch head-of-queue stalls — GPU delta of ~0.1ms means
+        // clean, spikes mean this Copy is waiting behind game work in the
+        // shared command stream.
+        g_CopyTimer->Begin();
         g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, mDisplayPair.Get(), g_shutterGlasses.IsLeftEye(), nullptr);
+        g_CopyTimer->End();
 
         // Present(1,) so that when the queue is full we block until it's free.
         HR(g_GameSwapChain->Present(1, 0));

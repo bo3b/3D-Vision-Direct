@@ -118,6 +118,18 @@ void Overlay::Render()
 
         ImGui::Text("Load ms: %4.1f  peak %.1f", load_now, peak);
         ImGui::PlotLines("##ms", load_history_, kFpsHistorySize, load_history_idx_, nullptr, 0.0f, 20.0f, ImVec2(400, 100));
+
+        // Presenter Copy time — if this spikes, our CopySubresourceRegion is waiting
+        // behind game work in the shared GPU command stream. Normal is ~0.1ms.
+        const float copy_now             = g_CopyTimer->LastMs();
+        copy_history_[copy_history_idx_] = copy_now;
+        copy_history_idx_                = (copy_history_idx_ + 1) % kFpsHistorySize;
+
+        float copy_peak = 0.0f;
+        for each (float v in copy_history_)
+            if (v > copy_peak) copy_peak = v;
+
+        ImGui::Text("Copy ms: %4.1f  peak %.1f", copy_now, copy_peak);
     }
     ImGui::End();
 
