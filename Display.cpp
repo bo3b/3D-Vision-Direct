@@ -44,6 +44,12 @@ void Display::StartRefresh()
     }
     dxgi_device->Release();
 
+    // Display-owned coherent pair snapshot. Matches the handoff's layout so a
+    // single CopyResource per L-R cycle takes both slices at once.
+    D3D11_TEXTURE2D_DESC pair_desc;
+    g_game_latest_LR->GetDesc(&pair_desc);
+    HR(g_GameDevice->CreateTexture2D(&pair_desc, nullptr, &mDisplayPair));
+
     // Allocate the thread that will run the dual present
     mRefreshThread = new std::thread(&Display::RefreshLoop, this);
 
@@ -93,8 +99,14 @@ void Display::RefreshLoop()
         // As soon as we unblock, presumably vblank, hit emitter
         g_shutterGlasses.ToggleEyes();
 
-        // Copy whichever is up next
-        g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, g_game_latest_LR.Get(), g_shutterGlasses.IsLeftEye(), nullptr);
+        // On the Left eye (start of a new L-R cycle), snapshot the game's handoff
+        // into our own coherent pair. Both eyes then read from this snapshot, so
+        // a mid-cycle game update to g_game_latest_LR can't split the pair.
+        if (g_shutterGlasses.IsLeftEye())
+            g_GameImmediateContext->CopyResource(mDisplayPair.Get(), g_game_latest_LR.Get());
+
+        // Copy whichever eye is up next from our owned snapshot. Bracket with
+        g_GameImmediateContext->CopySubresourceRegion(refresh_backbuffer.Get(), 0, 0, 0, 0, mDisplayPair.Get(), g_shutterGlasses.IsLeftEye(), nullptr);
 
         // Present(1,) so that when the queue is full we block until it's free.
         HR(g_GameSwapChain->Present(1, 0));
