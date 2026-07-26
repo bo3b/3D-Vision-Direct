@@ -102,8 +102,8 @@ void Overlay::Render()
     ImGui::SetNextWindowPos(ImVec2(2000, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Dropped", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
     {
-        ImGui::Text("Dropped: %i", g_DroppedFrames);
-        ImGui::Text("Iterations: %i", g_load_iterations);
+        ImGui::Text("Dropped:   %i", g_DroppedFrames);
+        ImGui::Text("Flickers:  %i", g_FlipSlips);
         ImGui::Text("Iterations: %i", g_stall_iterations);
         // Scale 0..20 ms
         const float load_now             = g_LoadTimer->LastMs();

@@ -73,3 +73,6 @@ inline ComPtr<ID3D11Texture2D> g_game_latest_LR;  // ArraySize=2
 inline NvidiaShutterGlasses g_shutterGlasses;
 
 inline UINT g_DroppedFrames = 0;
+inline UINT g_FlipSlips     = 0;  // GPU-side flip slips: display held prev frame at vblank
+                                  // because head-of-queue frame's GPU work wasn't complete.
+                                  // Detected via SyncRefreshCount - PresentRefreshCount widening.

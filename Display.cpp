@@ -150,21 +150,38 @@ void LogStalls()
         return;
     }
 
-    // Valid stats, let's check for stalls.
+    // Valid stats, check for two failure modes:
     //
-    // We keep a running difference between the last_vblank_count and
-    // the last_present_count, which is some arbitrary number of dropped
-    // frames during statup. If that number grows and is different than the
-    // last time we checked- then we know we dropped a frame, because our
-    // Presents did not match our vBlanks.
-
+    // (1) Dropped frames — SyncRefreshCount vs PresentCount widening.
+    //     PresentCount advances per Present() call, so this catches CPU-side
+    //     stalls where our Present didn't get issued for a vblank.
     if ((stats.SyncRefreshCount - stats.PresentCount) != lost_frames)
     {
         g_out << "  ---Dropped Frame---  " << elapsed_ms << " ms" << endlog;
         g_DroppedFrames += 1;
     }
     lost_frames = stats.SyncRefreshCount - stats.PresentCount;
-    //g_out << "  lost_frames: " << lost_frames << "  last_vblank_count: " << last_vblank_count << "  last_present_count: "<< last_present_count << endlog;
+
+    // (2) Flip slips — SyncRefreshCount delta between iterations.
+    //     Sync is the free-running vblank counter; normally advances by 1
+    //     between our iterations (one vblank per Present). If Present blocked
+    //     an extra vblank because head-of-queue GPU work slipped, we sample
+    //     AFTER that extra vblank, so Sync advanced by 2 or more. This catches
+    //     the slip at the Present-block boundary, before the DXGI counters
+    //     have a chance to catch up (which they do by the time we sample).
+    //     Comparing PresentRefreshCount to Sync won't work: by our sample
+    //     time Present() has already unblocked, meaning the slip resolved.
+    static UINT last_sync = 0;
+    if (last_sync != 0)
+    {
+        UINT sync_delta = stats.SyncRefreshCount - last_sync;
+        if (sync_delta > 1)
+        {
+            g_out << "  ---Flip slip---  vblank delta=" << sync_delta << "  " << elapsed_ms << " ms" << endlog;
+            g_FlipSlips += (sync_delta - 1);  // one slip per skipped vblank
+        }
+    }
+    last_sync = stats.SyncRefreshCount;
 }
 
 //// Vblank clock: maps a QPC time to an absolute refresh count. Published by the
