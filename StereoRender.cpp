@@ -528,11 +528,29 @@ void draw_cube(bool rightEye, const shared_CB& eye_cb)
 //--------------------------------------------------------------------------------------
 void render_frame()
 {
+    //static bool half = true;
+
+    //half = !half;
+    //if (half)
+    //    return;
+
     // We want to not just hog the GPU with a free running loop, so this stalls out
     // the drawing thread for 100us, which is long enough to allow the GPU to catch
     // up on it's GPU scheduling and draws. That translates directly to a smoother
     // PS_Load with no spikes. Closer to a game style result.
-    g_Timer.SleepMicroseconds(100);
+    //g_Timer.SleepMicroseconds(500);
+
+    // For game use, this needs to check if a stall might help.  We can't blindly
+    // call WaitForVBlank because the game might be running slow, and this would
+    // make it even slower.  OK for this sample that overruns.
+    ComPtr<IDXGIOutput> refresh_output;
+    HR(g_GameSwapChain->GetContainingOutput(&refresh_output));
+
+    //if (FAILED(refresh_output->WaitForVBlank()))
+    //    DebugBreak();
+    //if (FAILED(refresh_output->WaitForVBlank()))
+    //    DebugBreak();
+
 
     //
     // Rotate cube around the origin
